@@ -2,7 +2,7 @@
   'use strict';
 
   /* ---------- Constantes ---------- */
-  const VERSION = '1.4.0';
+  const VERSION = '1.4.1';
   const DATA_VERSION = 3;
   const PRESTIGE_BONUS = 0.10;       // +10 % par point de prestige
   const PRESTIGE_DIVISOR = 1e9;      // 1 point de prestige pour 1 milliard $ gagné dans la partie
@@ -20,6 +20,10 @@
   const SECRET = 'rmn-v1|Romanomoney|k7Qz#92';
 
   const UPDATES = [
+    {
+      v: '1.4.1', d: '25 octobre 2026',
+      notes: ['Correction : une sauvegarde peut maintenant être importée après une réinstallation (la vérification d\'installation est retirée).']
+    },
     {
       v: '1.4.0', d: '25 octobre 2026',
       notes: [
@@ -1053,7 +1057,6 @@
       return dataMsg('bad', e.message === 'altered' ? 'Fichier modifié ou corrompu.' : 'Fichier non reconnu.');
     }
     if (!data || data.g !== 'romanomoney' || !data.s || typeof data.s !== 'object') return dataMsg('bad', 'Fichier non reconnu.');
-    if (!meta.id || data.dev !== meta.id) return dataMsg('bad', 'Cette sauvegarde appartient à une autre installation.');
     S = sanitize(data.s);
     applyOffline();
     render();

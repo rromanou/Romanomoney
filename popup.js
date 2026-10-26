@@ -2,7 +2,7 @@
   'use strict';
 
   /* ---------- Constantes ---------- */
-  const VERSION = '1.2.0';
+  const VERSION = '1.4.0';
   const DATA_VERSION = 3;
   const PRESTIGE_BONUS = 0.10;       // +10 % par point de prestige
   const PRESTIGE_DIVISOR = 1e9;      // 1 point de prestige pour 1 milliard $ gagné dans la partie
@@ -20,6 +20,22 @@
   const SECRET = 'rmn-v1|Romanomoney|k7Qz#92';
 
   const UPDATES = [
+    {
+      v: '1.4.0', d: '25 octobre 2026',
+      notes: [
+        'Deux fois plus de paliers : 119 améliorations de clic, 199 revenus passifs et 59 multiplicateurs. Les nouveaux paliers s\'insèrent entre les anciens.',
+        'Limite de temps AFK : prix de base 25 points et croissance de 25 % par achat.',
+        'Surclics permanents : prix de base 15 points et croissance de 32 % par achat.'
+      ]
+    },
+    {
+      v: '1.3.0', d: '25 octobre 2026',
+      notes: [
+        '60 améliorations de clic (au lieu de 22) et 100 revenus passifs (au lieu de 40), jusqu\'à des nombres à plus de 280 chiffres.',
+        '30 multiplicateurs à achat unique (x1,5, x2 puis x3) qui s\'appliquent à tous tes gains. Ils sont remis à zéro par le prestige et le rebirth.',
+        'Crédits : Roman B.'
+      ]
+    },
     {
       v: '1.2.0', d: '25 octobre 2026',
       notes: [
@@ -59,7 +75,15 @@
     'Souris de précision', 'Double écran', 'Station de trading', 'Algorithme boursier', 'Réseau de courtiers',
     'Superordinateur', 'Calcul quantique', 'Réseau neuronal', 'Analyste orbital', 'Cerveau synthétique',
     'Doigt de Midas', 'Contrat galactique', 'Clic cosmique', 'Main du destin', 'Poing du multivers',
-    'Clic d\'éternité', 'Pouvoir absolu'
+    'Clic d\'éternité', 'Pouvoir absolu',
+    'Impulsion stellaire', 'Doigt de nébuleuse', 'Poing de supernova', 'Toucher de pulsar', 'Paume de quasar',
+    'Main de trou noir', 'Geste dimensionnel', 'Clic hyperspatial', 'Étreinte du vide', 'Pression du cosmos',
+    'Frappe temporelle', 'Impact de paradoxe', 'Clic d\'antimatière', 'Doigt de l\'entropie', 'Poing de l\'infini',
+    'Touche primordiale', 'Clic fondateur', 'Main de la création', 'Souffle des origines', 'Pulsation universelle',
+    'Étincelle divine', 'Clic omnipotent', 'Geste souverain', 'Décret absolu', 'Sceau de l\'éternité',
+    'Empreinte du big bang', 'Doigt de l\'architecte', 'Clic de réalité', 'Frappe métaphysique', 'Main de l\'absolu',
+    'Volonté pure', 'Clic transcendant', 'Poing du destin', 'Toucher d\'éternité', 'Geste ultime',
+    'Clic au-delà du temps', 'Main du tout', 'Clic final'
   ];
 
   const GEN_NAMES = [
@@ -70,25 +94,80 @@
     'Forge d\'étoiles', 'Trou noir industriel', 'Empire galactique', 'Moissonneuse de quasars', 'Machine à univers',
     'Fabrique de dimensions', 'Banque du multivers', 'Horloge cosmique', 'Tisseur de réalités', 'Forge du temps',
     'Architecte de l\'infini', 'Source primordiale', 'Trésor des origines', 'Singularité économique', 'Moteur de l\'éternité',
-    'Noyau de l\'existence', 'Bourse de l\'absolu', 'Gouverneur du néant', 'Dieu du commerce', 'Origine de toute richesse'
+    'Noyau de l\'existence', 'Bourse de l\'absolu', 'Gouverneur du néant', 'Dieu du commerce', 'Origine de toute richesse',
+    'Atelier des mondes', 'Cité-État orbitale', 'Flotte de croiseurs', 'Réseau de portails', 'Usine à planètes',
+    'Siphon de nébuleuse', 'Collecteur de matière noire', 'Réacteur à antimatière', 'Forge de galaxies', 'Tisseur de filaments',
+    'Brasserie de supernovas', 'Cathédrale temporelle', 'Archive des futurs', 'Banque des paradoxes', 'Bourse des timelines',
+    'Moissonneur d\'entropie', 'Distillerie de vide', 'Atelier des constantes', 'Fonderie de lois physiques', 'Imprimante d\'univers',
+    'Gestionnaire de multivers', 'Cartel dimensionnel', 'Empire des réalités', 'Conseil des dieux', 'Panthéon marchand',
+    'Sanctuaire du hasard', 'Loterie cosmique', 'Casino des destins', 'Marché des âmes', 'Banque des souvenirs',
+    'Fabrique de concepts', 'Raffinerie d\'idées', 'Moteur de possibilités', 'Générateur de miracles', 'Autel de l\'abondance',
+    'Cœur du cosmos', 'Rivière d\'infini', 'Océan de potentiel', 'Mer des origines', 'Source de toute énergie',
+    'Matrice du réel', 'Code source de l\'univers', 'Éditeur de réalité', 'Compilateur d\'existence', 'Serveur du multivers',
+    'Trône de l\'omniscience', 'Sceptre de la création', 'Couronne de l\'éternité', 'Livre du destin', 'Balance du cosmos',
+    'Horloge du dernier instant', 'Écho du big bang', 'Ombre de l\'infini', 'Reflet de l\'absolu', 'Rêve du premier être',
+    'Pensée du tout', 'Silence primordial', 'Dernier horizon', 'Au-delà du possible', 'La richesse elle-même'
   ];
 
-  function buildClicks() {
-    let e = 0;
-    return CLICK_NAMES.map((name, i) => {
-      if (i > 0) e += 1 + 0.2 * (i - 1);
-      const base = sig2(15 * Math.pow(10, e));
-      return { id: 'c' + i, name, base, add: sig2(base / (15 * Math.pow(1.27, i))), g: 1.18 + 0.003 * i };
+  /* Multiplicateurs à achat unique : réinitialisés par le prestige et le rebirth */
+  const UP_NAMES = [
+    'Formation du personnel', 'Publicité locale', 'Réseau de contacts', 'Optimisation fiscale', 'Logiciel de gestion',
+    'Marque réputée', 'Partenariats stratégiques', 'Franchise nationale', 'Monopole régional', 'Lobbying efficace',
+    'Automatisation totale', 'Intelligence collective', 'Commerce interplanétaire', 'Économie d\'échelle galactique', 'Taxe cosmique',
+    'Brevet universel', 'Contrôle des prix', 'Fusion des empires', 'Standard monétaire universel', 'Inflation maîtrisée',
+    'Boucle de profit', 'Rentabilité infinie', 'Dividendes temporels', 'Spéculation dimensionnelle', 'Arbitrage du multivers',
+    'Marché unifié des réalités', 'Loi de l\'abondance', 'Décret de prospérité', 'Bénédiction du hasard', 'Convergence absolue'
+  ];
+  /* Paliers intermédiaires : un palier de plus entre chaque paire de paliers existants (coût à mi-chemine) */
+  const TIER_SUFFIX = ['Premium', 'Deluxe', 'Turbo', 'Élite', 'Plus', 'Max', 'Pro', 'Ultra', 'Prime', 'Suprême', 'Optimal', 'Légendaire'];
+
+  function buildUps() {
+    const out = [];
+    UP_NAMES.forEach((name, k) => {
+      const mult = k < 10 ? 1.5 : k < 20 ? 2 : 3;
+      out.push({ id: 'u' + k, name, base: sig2(1e3 * Math.pow(10, 9.3 * k)), mult });
+      if (k < UP_NAMES.length - 1) {
+        out.push({
+          id: 'v' + k, name: name + ' ' + TIER_SUFFIX[k % TIER_SUFFIX.length],
+          base: sig2(1e3 * Math.pow(10, 9.3 * (k + 0.5))),
+          mult: k < 10 ? 1.25 : k < 20 ? 1.5 : 2
+        });
+      }
     });
+    return out;
+  }
+  const UPS = buildUps();
+
+  function buildClicks() {
+    const es = [];
+    let e = 0;
+    CLICK_NAMES.forEach((n, i) => { if (i > 0) e += i < 22 ? 1 + 0.2 * (i - 1) : 5.7; es.push(e); });
+    const tier = (id, name, ex, t) => {
+      const base = sig2(15 * Math.pow(10, ex));
+      return { id, name, base, add: sig2(base / (15 * Math.pow(1.27, t))), g: 1.18 + 0.003 * t };
+    };
+    const out = [];
+    CLICK_NAMES.forEach((name, i) => {
+      out.push(tier('c' + i, name, es[i], i));
+      if (i < CLICK_NAMES.length - 1) out.push(tier('d' + i, name + ' ' + TIER_SUFFIX[i % TIER_SUFFIX.length], (es[i] + es[i + 1]) / 2, i + 0.5));
+    });
+    return out;
   }
 
   function buildGens() {
+    const es = [];
     let e = 0;
-    return GEN_NAMES.map((name, i) => {
-      if (i > 0) e += 1 + 0.055 * (i - 1);
-      const base = sig2(50 * Math.pow(10, e));
-      return { id: 'g' + i, name, base, cps: sig2(base / (100 * Math.pow(1.08, i))), g: 1.16 + 0.002 * i };
+    GEN_NAMES.forEach((n, i) => { if (i > 0) e += i < 40 ? 1 + 0.055 * (i - 1) : 3.4; es.push(e); });
+    const tier = (id, name, ex, t) => {
+      const base = sig2(50 * Math.pow(10, ex));
+      return { id, name, base, cps: sig2(base / (100 * Math.pow(1.08, t))), g: 1.16 + 0.002 * t };
+    };
+    const out = [];
+    GEN_NAMES.forEach((name, i) => {
+      out.push(tier('g' + i, name, es[i], i));
+      if (i < GEN_NAMES.length - 1) out.push(tier('h' + i, name + ' ' + TIER_SUFFIX[i % TIER_SUFFIX.length], (es[i] + es[i + 1]) / 2, i + 0.5));
     });
+    return out;
   }
 
   const CLICKS = buildClicks();
@@ -101,8 +180,8 @@
     { id: 'afk',    name: 'Revenu AFK',              base: 4, g: 1.40, max: Infinity },
     { id: 'casino', name: 'Gains au casino',         base: 7, g: 1.45, max: Infinity },
     { id: 'disc',   name: 'Prix des améliorations',  base: 8, g: 1.45, max: 37 },
-    { id: 'time',   name: 'Limite de temps AFK',     base: 3, g: 1.12, max: 84 },
-    { id: 'over',   name: 'Surclics permanents',     base: 2, g: 1.35, max: Infinity }
+    { id: 'time',   name: 'Limite de temps AFK',     base: 25, g: 1.25, max: 84 },
+    { id: 'over',   name: 'Surclics permanents',     base: 15, g: 1.32, max: Infinity }
   ];
 
   /* Cosmétiques : money = prix en argent, rp = prix en points de rebirth */
@@ -135,7 +214,7 @@
   const fresh = () => ({
     v: DATA_VERSION,
     money: 0, run: 0, rrun: 0, total: 0,
-    clicks: {}, gens: {},
+    clicks: {}, gens: {}, ups: {},
     prestige: 0, resets: 0,
     rp: 0, rebirths: 0, rb: {},
     over: 0, clicksMade: 0, cd: {},
@@ -223,8 +302,9 @@
   }
 
   const mult = () => 1 + PRESTIGE_BONUS * S.prestige;
-  const perClick = () => (1 + CLICKS.reduce((a, d) => a + owned(S.clicks, d.id) * d.add, 0)) * mult() * clickRb() * siteMult();
-  const perSecond = () => GENS.reduce((a, d) => a + owned(S.gens, d.id) * d.cps, 0) * mult() * passRb() * siteMult();
+  const upMult = () => UPS.reduce((a, d) => (S.ups && S.ups[d.id] ? a * d.mult : a), 1);
+  const perClick = () => (1 + CLICKS.reduce((a, d) => a + owned(S.clicks, d.id) * d.add, 0)) * mult() * upMult() * clickRb() * siteMult();
+  const perSecond = () => GENS.reduce((a, d) => a + owned(S.gens, d.id) * d.cps, 0) * mult() * upMult() * passRb() * siteMult();
   const prestigeGain = () => Math.floor(Math.sqrt(S.run / PRESTIGE_DIVISOR));
   const rebirthGain = () => Math.floor(Math.cbrt(S.rrun / REBIRTH_DIVISOR));
 
@@ -352,6 +432,7 @@
     s.money = num(o.money); s.run = num(o.run); s.rrun = num(o.rrun); s.total = num(o.total);
     s.clicks = countMap(o.clicks, CLICKS, MAX_OWNED);
     s.gens = countMap(o.gens, GENS, MAX_OWNED);
+    UPS.forEach((d) => { if (o.ups && o.ups[d.id]) s.ups[d.id] = 1; });
     s.prestige = Math.floor(num(o.prestige));
     s.resets = Math.floor(num(o.resets));
     s.rp = Math.floor(num(o.rp));
@@ -381,7 +462,7 @@
     money: $('#money'), cps: $('#cps'), cpc: $('#cpc'),
     earn: $('#earn'), notice: $('#notice'), siteBadge: $('#site-badge'),
     stClicks: $('#st-clicks'), stTotal: $('#st-total'), stMult: $('#st-mult'),
-    listClicks: $('#list-clicks'), listGens: $('#list-gens'),
+    listClicks: $('#list-clicks'), listGens: $('#list-gens'), listUps: $('#list-ups'), upsTitle: $('#ups-title'),
     reels: $$('#reels .reel'), spin: $('#spin'), result: $('#result'),
     betShow: $('#bet-show'),
     flipFace: $('#flip-face'), flipBtns: [$('#flip-heads'), $('#flip-tails')],
@@ -397,11 +478,12 @@
     overPer: $('#over-per'), overCount: $('#over-count'), overVal: $('#over-val'), claim: $('#claim')
   };
 
-  const rows = { clicks: {}, gens: {}, rb: {}, skins: {}, bgs: {} };
+  const rows = { clicks: {}, gens: {}, ups: {}, rb: {}, skins: {}, bgs: {} };
   let buyMode = '1';
 
   /* ---------- Boutique ---------- */
   function buildShop() {
+    UPS.forEach((d) => { rows.ups[d.id] = makeRow(el.listUps, () => buyUp(d)); });
     CLICKS.forEach((d) => { rows.clicks[d.id] = makeRow(el.listClicks, () => buy('clicks', d)); });
     GENS.forEach((d) => { rows.gens[d.id] = makeRow(el.listGens, () => buy('gens', d)); });
   }
@@ -435,6 +517,37 @@
     S[kind][d.id] = have + n;
     render();
     save();
+  }
+
+  function buyUp(d) {
+    if (S.ups[d.id]) return;
+    const price = d.base * discount();
+    if (!(S.money >= price)) return;
+    S.money = Math.max(0, S.money - price);
+    S.ups[d.id] = 1;
+    render();
+    save();
+  }
+
+  function updateUps() {
+    let teaser = false, bought = 0;
+    UPS.forEach((d) => {
+      const r = rows.ups[d.id];
+      if (S.ups[d.id]) { bought++; r.item.style.display = 'none'; return; }
+      const revealed = S.total >= d.base * 0.4;
+      if (!revealed && teaser) { r.item.style.display = 'none'; return; }
+      r.item.style.display = '';
+      r.item.classList.toggle('locked', !revealed);
+      r.name.textContent = revealed ? d.name : '???';
+      r.desc.textContent = revealed ? 'x' + dec(d.mult, 2) + ' sur tous les gains' : 'Continue de gagner de l\'argent';
+      r.own.textContent = '';
+      r.qty.textContent = revealed ? 'Achat unique' : '';
+      const price = d.base * discount();
+      r.price.textContent = money(price);
+      r.btn.disabled = !revealed || !(S.money >= price);
+      if (!revealed) teaser = true;
+    });
+    el.upsTitle.textContent = 'Multiplicateurs (' + bought + ' / ' + UPS.length + ') : x' + fmt(upMult());
   }
 
   function updateRows(kind, defs, rowMap, text) {
@@ -593,8 +706,9 @@
     el.stMult.textContent = 'x' + fmt(mult());
     el.siteBadge.hidden = !siteActive;
 
-    updateRows('clicks', CLICKS, rows.clicks, (d) => '+' + fmt(d.add * mult() * clickRb() * siteMult()) + ' $ par clic');
-    updateRows('gens', GENS, rows.gens, (d) => '+' + fmt(d.cps * mult() * passRb() * siteMult()) + ' $ par seconde');
+    updateUps();
+    updateRows('clicks', CLICKS, rows.clicks, (d) => '+' + fmt(d.add * mult() * upMult() * clickRb() * siteMult()) + ' $ par clic');
+    updateRows('gens', GENS, rows.gens, (d) => '+' + fmt(d.cps * mult() * upMult() * passRb() * siteMult()) + ' $ par seconde');
 
     const gain = prestigeGain();
     el.prPoints.textContent = fmt(S.prestige);

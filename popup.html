@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Romanomoney</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body data-skin="classic" data-bg="dark">
+  <header>
+    <div class="money" id="money">0 $</div>
+    <div class="sub"><span id="cps">0 $/s</span> <span class="sep">|</span> <span id="cpc">1 $/clic</span></div>
+  </header>
+
+  <nav id="tabs">
+    <button class="tab active" data-tab="game">Jeu</button>
+    <button class="tab" data-tab="shop">Boutique</button>
+    <button class="tab" data-tab="casino">Casino</button>
+    <button class="tab" data-tab="minigames">Mini-jeux</button>
+    <button class="tab" data-tab="prestige">Prestige</button>
+    <button class="tab" data-tab="rebirth">Rebirth</button>
+    <button class="tab" data-tab="style">Style</button>
+    <button class="tab" data-tab="infos">Infos</button>
+  </nav>
+
+  <main>
+    <section class="panel active" id="panel-game">
+      <div class="click-zone">
+        <button id="earn" class="earn">Gagner de l'argent</button>
+      </div>
+      <div class="notice" id="notice"></div>
+      <div class="badge" id="site-badge" hidden>Bonus de site actif : x1,15</div>
+      <div class="stats">
+        <div><span>Clics</span><b id="st-clicks">0</b></div>
+        <div><span>Total gagné</span><b id="st-total">0 $</b></div>
+        <div><span>Prestige</span><b id="st-mult">x1</b></div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-shop">
+      <div class="buy-mode" id="buy-mode">
+        <span>Quantité</span>
+        <button data-mode="1" class="active">x1</button>
+        <button data-mode="10">x10</button>
+        <button data-mode="100">x100</button>
+        <button data-mode="max">Max</button>
+      </div>
+      <h2>Améliorations de clic</h2>
+      <div class="list" id="list-clicks"></div>
+      <h2>Revenus passifs</h2>
+      <div class="list" id="list-gens"></div>
+    </section>
+
+    <section class="panel" id="panel-casino">
+      <div class="seg" id="seg">
+        <button class="active" data-game="slots">Machine à sous</button>
+        <button data-game="flip">Pile ou face</button>
+        <button data-game="roulette">Roulette</button>
+      </div>
+
+      <div class="cgame" id="cg-slots">
+        <div class="reels" id="reels">
+          <div class="reel">7</div><div class="reel">BAR</div><div class="reel">VIP</div>
+        </div>
+        <button id="spin" class="primary">Lancer</button>
+        <details class="paytable">
+          <summary>Table des gains</summary>
+          <div class="pt">
+            <div><span>Trois VIP</span><b>18,45x</b></div>
+            <div><span>Deux VIP + un BAR</span><b>10,39x</b></div>
+            <div><span>Deux BAR + un VIP</span><b>9,15x</b></div>
+            <div><span>Trois BAR</span><b>16,17x</b></div>
+            <div><span>Deux VIP</span><b>8x</b></div>
+            <div><span>Deux BAR</span><b>5x</b></div>
+            <div><span>VIP + deux nombres pareils</span><b>5,15x</b></div>
+            <div><span>BAR + deux nombres pareils</span><b>4,39x</b></div>
+            <div><span>Trois 7</span><b>7x</b></div>
+            <div><span>Trois 0</span><b>4,72x</b></div>
+            <div><span>Trois nombres pareils</span><b>3,15x</b></div>
+            <div><span>Deux nombres pareils</span><b>2x</b></div>
+            <div><span>Trois 6, un 0, tous différents</span><b>0x</b></div>
+          </div>
+        </details>
+      </div>
+
+      <div class="cgame" id="cg-flip" hidden>
+        <div class="bigface" id="flip-face">?</div>
+        <div class="two">
+          <button id="flip-heads" class="primary">Pile</button>
+          <button id="flip-tails" class="primary">Face</button>
+        </div>
+        <div class="hint">Gagne et ta mise est doublée. Chance de gain : 48 %.</div>
+      </div>
+
+      <div class="cgame" id="cg-roulette" hidden>
+        <div class="bigface" id="rou-face">0</div>
+        <div class="three">
+          <button class="primary rouge" data-color="red">Rouge x2</button>
+          <button class="primary noir" data-color="black">Noir x2</button>
+          <button class="primary vert" data-color="green">Vert x36</button>
+        </div>
+        <div class="hint">Numéro de 0 à 36. Le 0 est vert.</div>
+      </div>
+
+      <div class="bet">
+        <div class="bet-show" id="bet-show">Mise : 10 $</div>
+        <div class="quick" id="quick">
+          <button data-bet="min">Min</button>
+          <button data-bet="0.01">1 %</button>
+          <button data-bet="0.1">10 %</button>
+          <button data-bet="0.5">50 %</button>
+          <button data-bet="1">Tout</button>
+        </div>
+      </div>
+      <div class="result" id="result">Choisis ta mise puis lance ta chance.</div>
+    </section>
+
+    <section class="panel" id="panel-minigames">
+      <div id="mg-menu"></div>
+      <div id="mg-stage" hidden></div>
+    </section>
+
+    <section class="panel" id="panel-prestige">
+      <h2>Prestige</h2>
+      <p class="txt">Recommence de zéro pour obtenir des points. Chaque point donne +10 % sur tous tes gains, de façon permanente.</p>
+      <div class="stats">
+        <div><span>Points</span><b id="pr-points">0</b></div>
+        <div><span>Gain possible</span><b id="pr-gain">0</b></div>
+        <div><span>Prestiges</span><b id="pr-resets">0</b></div>
+      </div>
+      <p class="txt small" id="pr-hint"></p>
+      <button id="prestige" class="primary">Faire le prestige</button>
+      <button id="wipe" class="danger">Réinitialiser la sauvegarde</button>
+    </section>
+
+    <section class="panel" id="panel-rebirth">
+      <h2>Rebirth</h2>
+      <p class="txt">Remet tout à zéro, prestige compris, en échange de points de rebirth. Les améliorations de rebirth sont permanentes.</p>
+      <div class="stats">
+        <div><span>Points</span><b id="rb-points">0</b></div>
+        <div><span>Gain possible</span><b id="rb-gain">0</b></div>
+        <div><span>Rebirths</span><b id="rb-count">0</b></div>
+      </div>
+      <p class="txt small" id="rb-hint"></p>
+      <button id="rebirth" class="primary">Faire le rebirth</button>
+      <h2>Améliorations permanentes</h2>
+      <div class="list" id="rb-list"></div>
+    </section>
+
+    <section class="panel" id="panel-style">
+      <h2>Boutons</h2>
+      <div class="list" id="skin-list"></div>
+      <h2>Arrière-plans</h2>
+      <div class="list" id="bg-list"></div>
+    </section>
+
+    <section class="panel" id="panel-infos">
+      <h2>Mises à jour</h2>
+      <div id="updates"></div>
+      <h2>Sauvegarde</h2>
+      <div class="data">
+        <p class="txt small left">La sauvegarde est liée à cette installation et ne peut pas être importée ailleurs.</p>
+        <div class="two">
+          <button id="exp-file" class="primary">Télécharger</button>
+          <button id="exp-copy" class="primary">Copier</button>
+        </div>
+        <textarea id="exp-text" class="code" rows="2" readonly placeholder="Le code exporté apparaît ici"></textarea>
+        <div class="two">
+          <label class="primary filebtn" for="imp-file">Choisir un fichier</label>
+          <button id="imp-btn" class="primary">Importer</button>
+        </div>
+        <input type="file" id="imp-file" accept=".rmn,.txt" hidden>
+        <textarea id="imp-text" class="code" rows="2" placeholder="Colle ici le contenu du fichier"></textarea>
+        <div class="datamsg" id="data-msg"></div>
+      </div>
+      <h2>Crédits</h2>
+      <div class="credits">
+        <div class="credit-line"><span>Création</span><b>Roko</b></div>
+        <div class="credit-line"><span>Assistant</span><b>Claude</b></div>
+        <div class="credit-ver" id="version"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="over">
+      <span class="over-label">Surclics <span id="over-per">+0,2/clic</span></span>
+      <b id="over-count">0</b>
+      <span class="over-val" id="over-val">0 $</span>
+    </div>
+    <button id="claim" class="claim">Réclamer</button>
+  </footer>
+
+  <script src="popup.js"></script>
+  <script src="minigames.js"></script>
+</body>
+</html>

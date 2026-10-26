@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Romanomoney",
+  "version": "1.2.0",
+  "description": "Romanomoney : jeu de clics avec surclics, rebirth, mini-jeux, casino et styles.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqA8IV2gdtjOH7yHMD4e+/JZOu1Np0aA9Wn9p15kBgEWOxxcSnVBbrcPaQUUZFnXqWRicdAqh8rbqBysQTVXPpdAT7Zmk2IrIoLy647n5MPVWuP03l4RO71O+onaYw4y0fPGuraiql0U76Zj2l88yCL1pQjOUqj/BenLGyPTofoA3wNWVkoAwYOLNNNI3akESzJ5RFM/VXehirk5eiwzW7xzHXybuKGtjAIyQ4tvipHQSZzi51NYqvBVxrN+zgKJrvmk9Y0xcs+nGiqAmbEjgycvoVhSMBjDvzLgVd/o5KCrp7Qte5y7zTMoOKKR2SNzTbOBuledVz04LMuExu7qe3wIDAQAB",
+  "action": {
+    "default_title": "Romanomoney",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "storage",
+    "activeTab"
+  ]
+}

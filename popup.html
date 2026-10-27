@@ -221,6 +221,12 @@
         <input type="file" id="imp-file" accept=".rmn,.txt" hidden>
         <textarea id="imp-text" class="code" rows="2" placeholder="Colle ici le contenu du fichier"></textarea>
         <div class="datamsg" id="data-msg"></div>
+        <div id="sync-box" class="sync-box">
+          <label class="sync-opt"><input type="checkbox" id="sync-auto"> Charger automatiquement la progression</label>
+          <p class="txt small left">Sur le site, la progression la plus avancée (rebirths, prestiges, améliorations, argent) est gardée des deux côtés.</p>
+          <button id="sync-now" class="primary" disabled>Actualiser</button>
+          <div class="datamsg" id="sync-msg"></div>
+        </div>
         <button id="admin-open" class="danger" hidden>Panneau admin</button>
       </div>
       <h2>Crédits</h2>
@@ -271,6 +277,7 @@
     </div>
   </div>
 
+  <script src="sync.js"></script>
   <script src="popup.js"></script>
   <script src="minigames.js"></script>
   <script src="piggy.js"></script>

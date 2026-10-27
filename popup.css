@@ -380,3 +380,9 @@ body[data-bg="synth"]     { --bg-img: url(assets/bg-synth.jpg); }
 body[data-bg="deep"]      { --bg-img: url(assets/bg-deep.jpg); }
 body[data-bg="marble"]    { --bg-img: url(assets/bg-marble.jpg); }
 body[data-bg="matrix"]    { --bg-img: url(assets/bg-matrix.jpg); }
+
+/* liaison avec le site */
+.sync-box { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.sync-opt { display: flex; gap: 6px; align-items: center; font-size: 12px; cursor: pointer; }
+#sync-now { width: 100%; margin-top: 4px; background: #2ecc71; color: #06230f; opacity: 1; }
+#sync-now:disabled { background: #6b7280; color: #cbd0d8; opacity: .8; cursor: not-allowed; }

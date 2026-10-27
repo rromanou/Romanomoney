@@ -2,7 +2,7 @@
   'use strict';
 
   /* ---------- Constantes ---------- */
-  const VERSION = '1.5.0';
+  const VERSION = '1.6.0';
   const DATA_VERSION = 4;
   const PRESTIGE_BONUS = 0.10;       // +10 % par point de prestige
   const PRESTIGE_DIVISOR = 1e9;      // 1 point de prestige pour 1 milliard $ gagné dans la partie
@@ -144,6 +144,16 @@
 
 
   const UPDATES = [
+    {
+      v: '1.6.0', d: '26 octobre 2026',
+      notes: [
+        'Liaison avec le site Communicer : le jeu peut maintenant s\'ouvrir sur https://rromanou.github.io/Communicer/ et y sauvegarde ta progression dans ton compte, pour la retrouver même si tu perds ton ordinateur.',
+        'Infos, Sauvegarde : nouvelle option « Charger automatiquement la progression ». Quand tu ouvres le site, la progression la plus avancée est gardée des deux côtés, dans cet ordre : rebirths, prestiges, améliorations, argent.',
+        'Infos, Sauvegarde : nouveau bouton « Actualiser », vert seulement quand tu es sur le site. Il envoie ta sauvegarde chiffrée au site, qui remplace son ancienne sauvegarde par celle de l\'extension.',
+        'Hors du site, l\'extension fonctionne toute seule et ne se connecte jamais à un serveur.',
+        'Nouveau fichier sync.js qui gère toute cette liaison.'
+      ]
+    },
     {
       v: '1.5.0', d: '26 octobre 2026',
       notes: [
@@ -602,6 +612,14 @@
     }
   };
   function save() { S.lastSeen = Date.now(); store.set(SAVE_KEY, pack(S)); }
+  // Points d'accès pour sync.js (liaison avec le site)
+  window.__rmn = {
+    ver: VERSION,
+    exportCode: () => { save(); return encode({ g: 'romanomoney', ver: VERSION, dev: meta.id, t: Date.now(), s: pack(S) }); },
+    importCode: (code) => { const d = decode(code); if (!d || d.g !== 'romanomoney' || !d.s) throw new Error('format'); S = sanitize(d.s); render(); save(); },
+    applyPacked: (o) => { S = sanitize(o); render(); save(); },
+    setSite: (v) => { siteActive = !!v; render(); }
+  };
 
 
   function randomId() {

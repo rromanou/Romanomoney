@@ -16,6 +16,7 @@
     <button class="tab" data-tab="shop">Boutique</button>
     <button class="tab" data-tab="casino">Casino</button>
     <button class="tab" data-tab="minigames">Mini-jeux</button>
+    <button class="tab" data-tab="piggy">Cochon</button>
     <button class="tab" data-tab="prestige">Prestige</button>
     <button class="tab" data-tab="rebirth">Rebirth</button>
     <button class="tab" data-tab="style">Style</button>
@@ -44,19 +45,20 @@
         <button data-mode="100">x100</button>
         <button data-mode="max">Max</button>
       </div>
-      <h2>Améliorations de clic</h2>
-      <div class="list" id="list-clicks"></div>
-     <h2>Revenus passifs</h2>
-      <div class="list" id="list-gens"></div>
-      <h2 id="ups-title">Multiplicateurs</h2>
-      <div class="list" id="list-ups"></div>
+      <div class="cols">
+        <div class="col"><h2>Clics</h2><div class="list" id="list-clicks"></div></div>
+        <div class="col"><h2>Revenus passifs</h2><div class="list" id="list-gens"></div></div>
+        <div class="col"><h2 id="ups-title">Multiplicateurs</h2><div class="list" id="list-ups"></div></div>
+        <div class="col"><h2 id="tech-title">Recherche</h2><div class="list" id="list-tech"></div></div>
+      </div>
     </section>
 
     <section class="panel" id="panel-casino">
       <div class="seg" id="seg">
-        <button class="active" data-game="slots">Machine à sous</button>
-        <button data-game="flip">Pile ou face</button>
+        <button class="active" data-game="slots">Machine</button>
+        <button data-game="flip">Pile/Face</button>
         <button data-game="roulette">Roulette</button>
+        <button data-game="dice">Dés</button>
       </div>
 
       <div class="cgame" id="cg-slots">
@@ -103,6 +105,16 @@
         <div class="hint">Numéro de 0 à 36. Le 0 est vert.</div>
       </div>
 
+      <div class="cgame" id="cg-dice" hidden>
+        <div class="bigface" id="dice-face">7</div>
+        <div class="three">
+          <button class="primary" data-dice="under">Moins de 7<br>x2,2</button>
+          <button class="primary" data-dice="seven">Exactement 7<br>x5,5</button>
+          <button class="primary" data-dice="over">Plus de 7<br>x2,2</button>
+        </div>
+        <div class="hint">Deux dés à six faces, additionnés.</div>
+      </div>
+
       <div class="bet">
         <div class="bet-show" id="bet-show">Mise : 10 $</div>
         <div class="quick" id="quick">
@@ -119,6 +131,42 @@
     <section class="panel" id="panel-minigames">
       <div id="mg-menu"></div>
       <div id="mg-stage" hidden></div>
+    </section>
+
+    <section class="panel" id="panel-piggy">
+      <div id="pig-view">
+        <div class="pig-wrap">
+          <svg class="pig" viewBox="0 0 220 150" aria-label="Cochon tirelire">
+            <defs>
+              <radialGradient id="pg" cx="40%" cy="35%" r="75%">
+                <stop offset="0" stop-color="#ffc4d2"/><stop offset="1" stop-color="#e07a95"/>
+              </radialGradient>
+            </defs>
+            <ellipse cx="108" cy="140" rx="70" ry="6" fill="rgba(0,0,0,.35)"/>
+            <path d="M36 78 q-22 -6 -18 -26 q4 -8 12 -2 q-6 8 8 14" fill="none" stroke="#e07a95" stroke-width="6" stroke-linecap="round"/>
+            <rect x="52" y="108" width="20" height="28" rx="7" fill="#d9698a"/>
+            <rect x="92" y="112" width="20" height="26" rx="7" fill="#d9698a"/>
+            <rect x="130" y="112" width="20" height="26" rx="7" fill="#d9698a"/>
+            <rect x="160" y="106" width="20" height="30" rx="7" fill="#d9698a"/>
+            <ellipse cx="108" cy="80" rx="78" ry="54" fill="url(#pg)"/>
+            <path d="M150 34 l22 -22 l6 30 z" fill="#e88aa3"/>
+            <path d="M156 36 l14 -14 l3 20 z" fill="#f7b4c5"/>
+            <ellipse cx="184" cy="88" rx="22" ry="17" fill="#f29bb2"/>
+            <ellipse cx="178" cy="88" rx="3.4" ry="5" fill="#9c3f5b"/>
+            <ellipse cx="192" cy="88" rx="3.4" ry="5" fill="#9c3f5b"/>
+            <circle cx="156" cy="66" r="5" fill="#2a1420"/><circle cx="157.6" cy="64.4" r="1.6" fill="#fff"/>
+            <rect x="84" y="30" width="46" height="8" rx="4" fill="#7a2f47"/>
+            <circle class="pig-coin" cx="107" cy="14" r="11" fill="#f2c14e" stroke="#b8881f" stroke-width="2.5"/>
+            <text class="pig-coin" x="107" y="19" text-anchor="middle" font-size="14" font-weight="700" fill="#7c5a0b">$</text>
+          </svg>
+        </div>
+        <div class="pig-amount" id="pig-amount">0 $</div>
+        <div class="pig-bar"><div id="pig-fill"></div></div>
+        <div class="pig-sub" id="pig-sub"></div>
+        <button id="pig-break" class="primary">Casser la tirelire</button>
+        <p class="txt small">Ton revenu hors ligne s'accumule dans le cochon jusqu'à sa limite. Casse-le avec le petit jeu pour récupérer l'argent.</p>
+      </div>
+      <div id="pig-game" hidden></div>
     </section>
 
     <section class="panel" id="panel-prestige">
@@ -173,6 +221,7 @@
         <input type="file" id="imp-file" accept=".rmn,.txt" hidden>
         <textarea id="imp-text" class="code" rows="2" placeholder="Colle ici le contenu du fichier"></textarea>
         <div class="datamsg" id="data-msg"></div>
+        <button id="admin-open" class="danger" hidden>Panneau admin</button>
       </div>
       <h2>Crédits</h2>
       <div class="credits">
@@ -192,7 +241,38 @@
     <button id="claim" class="claim">Réclamer</button>
   </footer>
 
+  <div class="modal" id="afk-modal" hidden>
+    <div class="modal-box">
+      <div class="modal-title">Bon retour !</div>
+      <div class="modal-line" id="afk-away"></div>
+      <div class="modal-line">Ton cochon a gagné pendant ton absence :</div>
+      <div class="modal-gain" id="afk-gain"></div>
+      <div class="modal-line" id="afk-total"></div>
+      <button id="afk-go" class="primary">Casser la tirelire</button>
+      <button id="afk-close" class="danger">Fermer</button>
+    </div>
+  </div>
+
+  <div class="modal" id="admin-modal" hidden>
+    <div class="modal-box admin">
+      <div class="modal-title">Panneau admin</div>
+      <textarea id="admin-text" class="code big" spellcheck="false"></textarea>
+      <div class="two">
+        <button id="admin-refresh" class="primary">Actualiser</button>
+        <button id="admin-apply" class="primary">Appliquer</button>
+      </div>
+      <textarea id="admin-code" class="code" rows="2" spellcheck="false" placeholder="Code chiffré (RMN1...)"></textarea>
+      <div class="two">
+        <button id="admin-load" class="primary">Décrypter</button>
+        <button id="admin-encrypt" class="primary">Chiffrer</button>
+      </div>
+      <div class="datamsg" id="admin-msg"></div>
+      <button id="admin-close" class="danger">Fermer</button>
+    </div>
+  </div>
+
   <script src="popup.js"></script>
   <script src="minigames.js"></script>
+  <script src="piggy.js"></script>
 </body>
 </html>

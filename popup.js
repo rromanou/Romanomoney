@@ -2,8 +2,8 @@
   'use strict';
 
   /* ---------- Constantes ---------- */
-  const VERSION = '1.4.1';
-  const DATA_VERSION = 3;
+  const VERSION = '1.5.0';
+  const DATA_VERSION = 4;
   const PRESTIGE_BONUS = 0.10;       // +10 % par point de prestige
   const PRESTIGE_DIVISOR = 1e9;      // 1 point de prestige pour 1 milliard $ gagné dans la partie
   const REBIRTH_DIVISOR = 1e24;      // 1 point de rebirth pour 1 quadrillion $ gagné depuis le dernier rebirth
@@ -13,13 +13,151 @@
   const AFK_STEP_MS = 20 * 60 * 1000;
   const SAVE_KEY = 'makeMoneySave';
   const META_KEY = 'romanomoneyMeta';
-  const MAX_VALUE = 1e300;
-  const MAX_OWNED = 5000;
+  const MAX_OWNED = 1e6;
+  const MAX_BUY = 100000;
   const SITE_PREFIXES = ['https://rromanou.github.io/', 'https://caplotz.github.io/'];
   const SITE_MULT = 1.15;
   const SECRET = 'rmn-v1|Romanomoney|k7Qz#92';
 
+  /* ---------- Grands nombres sans limite : mantisse m dans [1, 10[ et exposant entier e ---------- */
+  class Big { constructor(m, e) { this.m = m; this.e = e; } }
+  const ZERO = new Big(0, 0), ONE = new Big(1, 0);
+
+  function mk(m, e) {
+    if (!(m > 0) || !isFinite(m)) return ZERO;
+    if (m >= 10 || m < 1) {
+      const k = Math.floor(Math.log10(m));
+      m = m / Math.pow(10, k); e += k;
+      if (m >= 10) { m /= 10; e++; } else if (m < 1) { m *= 10; e--; }
+    }
+    return new Big(m, e);
+  }
+  const NUM_RE = /^(\d+\.?\d*|\.\d+)(?:e([+-]?\d+))?$/;
+  function from(x) {
+    if (x instanceof Big) return x;
+    if (typeof x === 'number') return isFinite(x) && x > 0 ? mk(x, 0) : ZERO;
+    if (typeof x === 'string') {
+      const r = NUM_RE.exec(x.trim().replace(',', '.').toLowerCase());
+      if (r) {
+        const m = parseFloat(r[1]), e = r[2] ? parseInt(r[2], 10) : 0;
+        if (isFinite(m) && Math.abs(e) < 1e9) return mk(m, e);
+      }
+    }
+    return ZERO;
+  }
+  // Vrai si la valeur est un nombre acceptable (nombre positif, texte comme "1,5e400" ou Big)
+  function valid(x) {
+    if (x instanceof Big) return true;
+    if (typeof x === 'number') return isFinite(x) && x >= 0;
+    if (typeof x === 'string') {
+      const r = NUM_RE.exec(x.trim().replace(',', '.').toLowerCase());
+      return !!r && isFinite(parseFloat(r[1])) && (!r[2] || Math.abs(parseInt(r[2], 10)) < 1e9);
+    }
+    return false;
+  }
+  function cmp(a, b) {
+    a = from(a); b = from(b);
+    if (a.m === 0) return b.m === 0 ? 0 : -1;
+    if (b.m === 0) return 1;
+    if (a.e !== b.e) return a.e > b.e ? 1 : -1;
+    const d = a.m - b.m;
+    if (Math.abs(d) <= 1e-11 * b.m) return 0;
+    return d > 0 ? 1 : -1;
+  }
+  const lt = (a, b) => cmp(a, b) < 0;
+  const gt = (a, b) => cmp(a, b) > 0;
+  const gte = (a, b) => cmp(a, b) >= 0;
+  const lte = (a, b) => cmp(a, b) <= 0;
+  const isZero = (a) => from(a).m === 0;
+  const bmax = (a, b) => (cmp(a, b) >= 0 ? from(a) : from(b));
+  const bmin = (a, b) => (cmp(a, b) <= 0 ? from(a) : from(b));
+  function add(a, b) {
+    a = from(a); b = from(b);
+    if (a.m === 0) return b;
+    if (b.m === 0) return a;
+    if (a.e < b.e) { const t = a; a = b; b = t; }
+    const d = a.e - b.e;
+    if (d > 17) return a;
+    return mk(a.m + b.m / Math.pow(10, d), a.e);
+  }
+  function sub(a, b) {
+    a = from(a); b = from(b);
+    if (cmp(a, b) <= 0) return ZERO;
+    if (b.m === 0) return a;
+    const d = a.e - b.e;
+    if (d > 17) return a;
+    return mk(a.m - b.m / Math.pow(10, d), a.e);
+  }
+  function mul(a, b) {
+    a = from(a); b = from(b);
+    if (a.m === 0 || b.m === 0) return ZERO;
+    return mk(a.m * b.m, a.e + b.e);
+  }
+  function div(a, b) {
+    a = from(a); b = from(b);
+    if (a.m === 0 || b.m === 0) return ZERO;
+    return mk(a.m / b.m, a.e - b.e);
+  }
+  function pow10(l) {
+    if (!isFinite(l)) return ZERO;
+    const e = Math.floor(l);
+    return mk(Math.pow(10, l - e), e);
+  }
+  const log10 = (a) => { a = from(a); return a.m === 0 ? -Infinity : a.e + Math.log10(a.m); };
+  // base (nombre) puissance n (nombre) ; exact quand le résultat est petit
+  function powN(base, n) {
+    const l = n * Math.log10(base);
+    if (l < 15 && l > -15) return from(Math.pow(base, n));
+    return pow10(l);
+  }
+  function toNum(a) {
+    a = from(a);
+    if (a.m === 0) return 0;
+    if (a.e > 308) return Infinity;
+    if (a.e < -323) return 0;
+    return a.m * Math.pow(10, a.e);
+  }
+  function floor(a) {
+    a = from(a);
+    if (a.e >= 15 || a.m === 0) return a;
+    return from(Math.floor(toNum(a) * (1 + 1e-12)));
+  }
+  function ceil(a) {
+    a = from(a);
+    if (a.e >= 15 || a.m === 0) return a;
+    return from(Math.ceil(toNum(a) * (1 - 1e-12)));
+  }
+  function sqrt(a) {
+    a = from(a);
+    if (a.m === 0) return ZERO;
+    const r = ((a.e % 2) + 2) % 2;
+    return mk(Math.sqrt(a.m * Math.pow(10, r)), (a.e - r) / 2);
+  }
+  function cbrt(a) {
+    a = from(a);
+    if (a.m === 0) return ZERO;
+    const r = ((a.e % 3) + 3) % 3;
+    return mk(Math.cbrt(a.m * Math.pow(10, r)), (a.e - r) / 3);
+  }
+  const bstr = (a) => { a = from(a); return a.m === 0 ? '0' : String(Number(a.m.toPrecision(15))) + 'e' + a.e; };
+  const B = { Big, ZERO, ONE, from, valid, cmp, lt, gt, gte, lte, isZero, max: bmax, min: bmin, add, sub, mul, div, pow10, log10, powN, toNum, floor, ceil, sqrt, cbrt, str: bstr };
+
+
   const UPDATES = [
+    {
+      v: '1.5.0', d: '26 octobre 2026',
+      notes: [
+        'Plus aucune limite d\'argent : les nombres montent maintenant sans plafond (notation 1,23e456 et au-delà).',
+        'Deuxième ère de contenu : 477 améliorations de clic, 399 revenus passifs, 119 multiplicateurs et 80 technologies, avec des secteurs d\'Andromède à Kepler.',
+        'Après un prestige ou un rebirth, les améliorations trop chères disparaissent de la boutique jusqu\'à ce que tu aies gagné assez d\'argent pour les revoir. Les achats uniques déjà obtenus restent cachés.',
+        'Boutique en colonnes : clics, passifs, multiplicateurs et recherche côte à côte. La fenêtre s\'élargit dans la boutique.',
+        'Nouvelle catégorie Recherche : 80 technologies à achat unique (clics, passif, surclics, mini-jeux, cochon, casino, prix, clics automatiques). Elles survivent au prestige mais pas au rebirth.',
+        '9 nouvelles améliorations de rebirth : multiplicateur global, bonus et gain de prestige, gain de rebirth, valeur des surclics, gains et délai des mini-jeux, cochon généreux, capital de départ.',
+        '12 nouveaux styles avec images (6 boutons, 6 arrière-plans), beaucoup plus chers.',
+        'Revenu hors ligne refait : il s\'accumule dans un cochon tirelire. Une fenêtre t\'affiche tes gains à ton retour, et tu casses le cochon avec un petit jeu de timing. La limite est le montant maximum du cochon.',
+        'Nouveaux jeux : Taupes, Simon, Plus ou moins et Attrape-pièces dans les mini-jeux, Dés au casino.'
+      ]
+    },
     {
       v: '1.4.1', d: '25 octobre 2026',
       notes: ['Correction : une sauvegarde peut maintenant être importée après une réinstallation (la vérification d\'installation est retirée).']
@@ -72,7 +210,7 @@
   ];
 
   /* ---------- Données du jeu ---------- */
-  const sig2 = (x) => Number(x.toPrecision(2));
+  const sig2B = (b) => (b.m === 0 ? b : mk(Number(b.m.toPrecision(2)), b.e));
 
   const CLICK_NAMES = [
     'Meilleur curseur', 'Gants de travail', 'Bras robotisé', 'Assistant automatisé', 'Clavier mécanique',
@@ -125,19 +263,27 @@
   /* Paliers intermédiaires : un palier de plus entre chaque paire de paliers existants (coût à mi-chemine) */
   const TIER_SUFFIX = ['Premium', 'Deluxe', 'Turbo', 'Élite', 'Plus', 'Max', 'Pro', 'Ultra', 'Prime', 'Suprême', 'Optimal', 'Légendaire'];
 
+  /* Deuxième ère : des secteurs de la galaxie */
+  const PLACES = ['d\'Andromède', 'de Cassiopée', 'de Sirius', 'd\'Orion', 'de Véga', 'd\'Antarès', 'de Pégase', 'de Bételgeuse', 'de l\'Hydre', 'de Kepler'];
+  PLACES.forEach((p) => {
+    ['Clic', 'Poing', 'Frappe', 'Toucher', 'Doigt', 'Souffle'].forEach((n) => CLICK_NAMES.push(n + ' ' + p));
+    ['Forge', 'Banque', 'Bourse', 'Fabrique', 'Citadelle', 'Flotte', 'Raffinerie', 'Académie', 'Armada', 'Chantier'].forEach((n) => GEN_NAMES.push(n + ' ' + p));
+    ['Pacte', 'Traité', 'Édit'].forEach((n) => UP_NAMES.push(n + ' ' + p));
+  });
+
   function buildUps() {
     const out = [];
+    const decade = (k, a) => a[Math.min(a.length - 1, Math.floor(k / 10))];
     UP_NAMES.forEach((name, k) => {
-      const mult = k < 10 ? 1.5 : k < 20 ? 2 : 3;
-      out.push({ id: 'u' + k, name, base: sig2(1e3 * Math.pow(10, 9.3 * k)), mult });
+      out.push({ id: 'u' + k, name, base: sig2B(pow10(3 + 9.3 * k)), mult: decade(k, [1.5, 2, 3, 4, 5, 6]) });
       if (k < UP_NAMES.length - 1) {
         out.push({
           id: 'v' + k, name: name + ' ' + TIER_SUFFIX[k % TIER_SUFFIX.length],
-          base: sig2(1e3 * Math.pow(10, 9.3 * (k + 0.5))),
-          mult: k < 10 ? 1.25 : k < 20 ? 1.5 : 2
+          base: sig2B(pow10(3 + 9.3 * (k + 0.5))), mult: decade(k, [1.25, 1.5, 2, 2.5, 3, 4])
         });
       }
     });
+    out.forEach((d) => { d.revealB = mul(d.base, 0.4); });
     return out;
   }
   const UPS = buildUps();
@@ -145,15 +291,22 @@
   function buildClicks() {
     const es = [];
     let e = 0;
-    CLICK_NAMES.forEach((n, i) => { if (i > 0) e += i < 22 ? 1 + 0.2 * (i - 1) : 5.7; es.push(e); });
+    CLICK_NAMES.forEach((n, i) => { if (i > 0) e += i < 22 ? 1 + 0.2 * (i - 1) : i < 60 ? 5.7 : 6.5; es.push(e); });
     const tier = (id, name, ex, t) => {
-      const base = sig2(15 * Math.pow(10, ex));
-      return { id, name, base, add: sig2(base / (15 * Math.pow(1.27, t))), g: 1.18 + 0.003 * t };
+      const base = sig2B(pow10(Math.log10(15) + ex));
+      const dv = mul(15, mul(powN(1.27, Math.min(t, 60)), powN(1.08, Math.max(0, t - 60))));
+      return { id, name, base, add: sig2B(div(base, dv)), g: 1.18 + 0.003 * t, revealB: mul(base, 0.4) };
     };
     const out = [];
     CLICK_NAMES.forEach((name, i) => {
       out.push(tier('c' + i, name, es[i], i));
-      if (i < CLICK_NAMES.length - 1) out.push(tier('d' + i, name + ' ' + TIER_SUFFIX[i % TIER_SUFFIX.length], (es[i] + es[i + 1]) / 2, i + 0.5));
+      if (i < CLICK_NAMES.length - 1) {
+        const sfx = (o) => TIER_SUFFIX[(i + o) % TIER_SUFFIX.length];
+        const gap = es[i + 1] - es[i];
+        out.push(tier('e' + i, name + ' ' + sfx(4), es[i] + gap * 0.25, i + 0.25));
+        out.push(tier('d' + i, name + ' ' + sfx(0), (es[i] + es[i + 1]) / 2, i + 0.5));
+        out.push(tier('f' + i, name + ' ' + sfx(8), es[i] + gap * 0.75, i + 0.75));
+      }
     });
     return out;
   }
@@ -161,10 +314,11 @@
   function buildGens() {
     const es = [];
     let e = 0;
-    GEN_NAMES.forEach((n, i) => { if (i > 0) e += i < 40 ? 1 + 0.055 * (i - 1) : 3.4; es.push(e); });
+    GEN_NAMES.forEach((n, i) => { if (i > 0) e += i < 40 ? 1 + 0.055 * (i - 1) : i < 100 ? 3.4 : 3.8; es.push(e); });
     const tier = (id, name, ex, t) => {
-      const base = sig2(50 * Math.pow(10, ex));
-      return { id, name, base, cps: sig2(base / (100 * Math.pow(1.08, t))), g: 1.16 + 0.002 * t };
+      const base = sig2B(pow10(Math.log10(50) + ex));
+      const dv = mul(100, mul(powN(1.08, Math.min(t, 100)), powN(1.03, Math.max(0, t - 100))));
+      return { id, name, base, cps: sig2B(div(base, dv)), g: 1.16 + 0.002 * t, revealB: mul(base, 0.4) };
     };
     const out = [];
     GEN_NAMES.forEach((name, i) => {
@@ -177,6 +331,42 @@
   const CLICKS = buildClicks();
   const GENS = buildGens();
 
+  /* Recherche : 80 technologies à achat unique (8 types x 10 niveaux), survivent au prestige */
+  const TECH_TYPES = ['click', 'pass', 'over', 'mini', 'pig', 'casino', 'disc', 'auto'];
+  const TECH_NAMES = [
+    ['Ergonomie du poste', 'Souris gaming', 'Gants haptiques', 'Interface neuronale', 'Clic quantique'],
+    ['Comptabilité rigoureuse', 'Gestion des stocks', 'Logistique mondiale', 'Chaîne d\'approvisionnement cosmique', 'Économie circulaire universelle'],
+    ['Habitude du clic', 'Rythme soutenu', 'Cadence infernale', 'Flux continu', 'Rafale perpétuelle'],
+    ['Échauffement', 'Entraînement quotidien', 'Concentration zen', 'Maîtrise des jeux', 'Sixième sens'],
+    ['Cochon bien nourri', 'Fente élargie', 'Cochon en acier', 'Coffre-fort rose', 'Tirelire sans fond'],
+    ['Porte-bonheur', 'Trèfle à quatre feuilles', 'Dés pipés légalement', 'Étoile de la chance', 'Faveur du hasard'],
+    ['Négociation', 'Fournisseurs directs', 'Commandes en gros', 'Contrats exclusifs', 'Monopole d\'achat'],
+    ['Script de clic', 'Robot cliqueur', 'Escouade de bots', 'Ferme de clics', 'Armée d\'automates']
+  ];
+  const TECH_VALS = {
+    click: [1.5, 1.8, 2.2, 3, 4, 5, 6.5, 8, 10, 15], pass: [1.5, 1.8, 2.2, 3, 4, 5, 6.5, 8, 10, 15],
+    over: [0.05, 0.08, 0.12, 0.18, 0.25, 0.3, 0.4, 0.55, 0.75, 1],
+    mini: [1.2, 1.3, 1.5, 1.8, 2.2, 2.5, 3, 3.5, 4, 5], pig: [1.2, 1.3, 1.5, 1.8, 2.2, 2.5, 3, 3.5, 4, 5],
+    casino: [1.03, 1.04, 1.05, 1.07, 1.1, 1.12, 1.15, 1.2, 1.25, 1.3],
+    disc: [0.98, 0.97, 0.96, 0.95, 0.93, 0.92, 0.9, 0.88, 0.85, 0.8],
+    auto: [0.5, 1.5, 4, 10, 25, 60, 150, 400, 1000, 3000]
+  };
+  const TECHS = [];
+  for (let c = 0; c < 10; c++) {
+    TECH_TYPES.forEach((type, t) => {
+      const k = c * 8 + t;
+      const base = sig2B(pow10(5 + 6.3 * k));
+      TECHS.push({ id: 't' + k, name: TECH_NAMES[t][c % 5] + (c >= 5 ? ' II' : ''), type, val: TECH_VALS[type][c], base, revealB: mul(base, 0.4) });
+    });
+  }
+  const BY = { clicks: {}, gens: {}, ups: {}, tech: {} };
+  CLICKS.forEach((d) => { BY.clicks[d.id] = d; });
+  GENS.forEach((d) => { BY.gens[d.id] = d; });
+  UPS.forEach((d) => { BY.ups[d.id] = d; });
+  TECHS.forEach((d) => { BY.tech[d.id] = d; });
+  const TECH_OF = {};
+  TECH_TYPES.forEach((t) => { TECH_OF[t] = TECHS.filter((d) => d.type === t); });
+
   /* Améliorations permanentes de rebirth (prix de base donnés, croissance par achat) */
   const RB = [
     { id: 'click',  name: 'Multiplicateur par clic', base: 1, g: 1.35, max: Infinity },
@@ -185,26 +375,47 @@
     { id: 'casino', name: 'Gains au casino',         base: 7, g: 1.45, max: Infinity },
     { id: 'disc',   name: 'Prix des améliorations',  base: 8, g: 1.45, max: 37 },
     { id: 'time',   name: 'Limite de temps AFK',     base: 25, g: 1.25, max: 84 },
-    { id: 'over',   name: 'Surclics permanents',     base: 15, g: 1.32, max: Infinity }
+    { id: 'over',   name: 'Surclics permanents',     base: 15, g: 1.32, max: Infinity },
+    { id: 'glob',   name: 'Multiplicateur global',   base: 20, g: 1.5, max: Infinity },
+    { id: 'prest',  name: 'Bonus de prestige',       base: 10, g: 1.4, max: 40 },
+    { id: 'prgain', name: 'Gain de prestige',        base: 6, g: 1.4, max: Infinity },
+    { id: 'rbgain', name: 'Gain de rebirth',         base: 15, g: 1.5, max: Infinity },
+    { id: 'claim',  name: 'Valeur des surclics',     base: 12, g: 1.4, max: Infinity },
+    { id: 'mini',   name: 'Gains des mini-jeux',     base: 5, g: 1.35, max: Infinity },
+    { id: 'cdr',    name: 'Délai des mini-jeux',     base: 6, g: 1.4, max: 20 },
+    { id: 'pig',    name: 'Cochon généreux',         base: 10, g: 1.5, max: 8 },
+    { id: 'start',  name: 'Capital de départ',       base: 5, g: 1.6, max: Infinity }
   ];
 
-  /* Cosmétiques : money = prix en argent, rp = prix en points de rebirth */
+  /* Cosmétiques : money = prix en argent, rp = prix en points de rebirth, img = image, sw = couleur d'aperçu */
   const BUTTON_SKINS = [
-    { id: 'classic', name: 'Classique' },
-    { id: 'ocean',   name: 'Océan',     money: 1e7 },
-    { id: 'ember',   name: 'Braise',    money: 1e15 },
-    { id: 'violet',  name: 'Améthyste', money: 1e24 },
-    { id: 'gold',    name: 'Or massif', rp: 3 },
-    { id: 'neon',    name: 'Néon',      rp: 6 },
-    { id: 'void',    name: 'Néant',     rp: 12 }
+    { id: 'classic', name: 'Classique',       sw: '#3ddc84' },
+    { id: 'ocean',   name: 'Océan',           sw: '#2aa9e8', money: 1e7 },
+    { id: 'ember',   name: 'Braise',          sw: '#ff6a2b', money: 1e15 },
+    { id: 'violet',  name: 'Améthyste',       sw: '#9b5cf0', money: 1e24 },
+    { id: 'gold',    name: 'Or massif',       sw: '#f2c14e', rp: 3 },
+    { id: 'neon',    name: 'Néon',            sw: '#ff3df2', rp: 6 },
+    { id: 'void',    name: 'Néant',           sw: '#14141f', rp: 12 },
+    { id: 'planet',  name: 'Planète bleue',   img: 'assets/btn-planet.jpg',  money: 1e40 },
+    { id: 'lava',    name: 'Lave en fusion',  img: 'assets/btn-lava.jpg',    money: 1e80 },
+    { id: 'crystal', name: 'Cristal',         img: 'assets/btn-crystal.jpg', money: 1e130 },
+    { id: 'circuit', name: 'Circuit imprimé', img: 'assets/btn-circuit.jpg', money: 1e200 },
+    { id: 'coin',    name: 'Pièce gravée',    img: 'assets/btn-coin.jpg',    rp: 60 },
+    { id: 'prism',   name: 'Prisme',          img: 'assets/btn-prism.jpg',   rp: 250 }
   ];
   const BACKGROUNDS = [
-    { id: 'dark',     name: 'Sombre' },
-    { id: 'forest',   name: 'Forêt',      money: 5e7 },
-    { id: 'midnight', name: 'Nuit bleue', money: 5e15 },
-    { id: 'dusk',     name: 'Crépuscule', money: 5e24 },
-    { id: 'aurora',   name: 'Aurore',     rp: 4 },
-    { id: 'galaxy',   name: 'Galaxie',    rp: 9 }
+    { id: 'dark',      name: 'Sombre',        sw: '#0f1613' },
+    { id: 'forest',    name: 'Forêt',         sw: '#143321', money: 5e7 },
+    { id: 'midnight',  name: 'Nuit bleue',    sw: '#14234a', money: 5e15 },
+    { id: 'dusk',      name: 'Crépuscule',    sw: '#43204a', money: 5e24 },
+    { id: 'aurora',    name: 'Aurore',        sw: '#0d3a3a', rp: 4 },
+    { id: 'galaxy',    name: 'Galaxie',       sw: '#1a0f3a', rp: 9 },
+    { id: 'nebula',    name: 'Nébuleuse',     img: 'assets/bg-nebula.jpg',    money: 1e50 },
+    { id: 'mountains', name: 'Montagnes',     img: 'assets/bg-mountains.jpg', money: 1e100 },
+    { id: 'synth',     name: 'Ville néon',    img: 'assets/bg-synth.jpg',     money: 1e160 },
+    { id: 'deep',      name: 'Océan profond', img: 'assets/bg-deep.jpg',      money: 1e230 },
+    { id: 'marble',    name: 'Marbre et or',  img: 'assets/bg-marble.jpg',    rp: 100 },
+    { id: 'matrix',    name: 'Pluie de code', img: 'assets/bg-matrix.jpg',    rp: 300 }
   ];
 
   /* Machine à sous : 12 symboles pondérés (total 100) */
@@ -215,16 +426,27 @@
   ];
   const REDS = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
 
+  const BIG_FIELDS = ['money', 'run', 'rrun', 'total', 'pig', 'prestige', 'rp'];
   const fresh = () => ({
     v: DATA_VERSION,
-    money: 0, run: 0, rrun: 0, total: 0,
-    clicks: {}, gens: {}, ups: {},
-    prestige: 0, resets: 0,
-    rp: 0, rebirths: 0, rb: {},
+    money: ZERO, run: ZERO, rrun: ZERO, total: ZERO,
+    clicks: {}, gens: {}, ups: {}, tech: {}, pig: ZERO,
+    prestige: ZERO, resets: 0,
+    rp: ZERO, rebirths: 0, rb: {},
     over: 0, clicksMade: 0, cd: {},
     skins: { classic: 1 }, bgs: { dark: 1 }, skin: 'classic', bg: 'dark',
     lastSeen: Date.now()
   });
+  // Les grands nombres sont stockés et exportés sous forme de texte ("1,5e400")
+  function pack(s) {
+    const o = Object.assign({}, s);
+    BIG_FIELDS.forEach((k) => { o[k] = bstr(s[k]); });
+    return o;
+  }
+  function unpack(o) {
+    BIG_FIELDS.forEach((k) => { o[k] = from(o[k]); });
+    return o;
+  }
 
   let S = fresh();
   let meta = { id: '' };
@@ -246,20 +468,24 @@
     return s.replace('.', ',');
   }
 
-  function fmt(n) {
-    if (!isFinite(n)) return 'Infini';
-    n = Math.max(0, n);
-    if (n < 1000) return n < 10 && n % 1 !== 0 ? dec(n, 2) : String(Math.floor(n));
-    const parts = n.toExponential(6).split('e');
-    const m = Number(parts[0]);
-    const e = Number(parts[1]);
-    if (e < 6) return sig3(n / 1000) + ' K';
+  // Accepte un nombre ou un grand nombre
+  function fmt(x) {
+    const b = from(x);
+    if (b.m === 0) return '0';
+    const e = b.e;
+    if (e < 3) {
+      const n = toNum(b);
+      return n < 10 && n % 1 !== 0 ? dec(n, 2) : String(Math.floor(n * (1 + 1e-12)));
+    }
+    if (e < 6) return sig3(toNum(b) / 1000) + ' K';
     if (e <= 123) {
       const g = e - (e % 3);
-      const v = m * Math.pow(10, e - g);
+      const v = b.m * Math.pow(10, e - g);
       return sig3(v) + ' ' + NAMES[g] + (v >= 2 ? 's' : '');
     }
-    return m.toFixed(2).replace('.', ',') + 'e' + e;
+    let m = Number(b.m.toPrecision(3)), ee = e;
+    if (m >= 10) { m /= 10; ee++; }
+    return m.toFixed(2).replace('.', ',') + 'e' + ee;
   }
   const money = (n) => fmt(n) + ' $';
 
@@ -272,7 +498,9 @@
   const fmtOver = (n) => (n < 1000 ? dec(n, n < 10 ? 2 : 1) : fmt(n));
 
   function fmtDur(ms) {
+    if (ms < 60000) return Math.max(0, Math.round(ms / 1000)) + ' s';
     const mins = Math.round(ms / 60000);
+    if (mins < 60) return mins + ' min';
     const h = Math.floor(mins / 60), m = mins % 60;
     return h + ' h' + (m ? ' ' + (m < 10 ? '0' : '') + m : '');
   }
@@ -284,39 +512,79 @@
   const owned = (map, id) => map[id] || 0;
   const rbn = (id) => (S.rb && S.rb[id]) || 0;
 
-  const discount = () => Math.max(0.25, 1 - 0.02 * rbn('disc'));
+  const techOwned = (type) => TECH_OF[type].filter((d) => S.tech && S.tech[d.id]);
+  const techProd = (type) => techOwned(type).reduce((a, d) => a * d.val, 1);
+  const techSum = (type) => techOwned(type).reduce((a, d) => a + d.val, 0);
+
+  const discount = () => Math.max(0.2, (1 - 0.02 * rbn('disc')) * techProd('disc'));
   const clickRb = () => 1 + 0.2 * rbn('click');
   const passRb = () => 1 + 0.2 * rbn('pass');
-  const afkMult = () => 1 + 0.2 * rbn('afk');
-  const casinoMult = () => 1 + 0.05 * rbn('casino');
+  const globMult = () => 1 + 0.1 * rbn('glob');
+  const afkMult = () => (1 + 0.2 * rbn('afk')) * techProd('pig');
+  const casinoMult = () => (1 + 0.05 * rbn('casino')) * techProd('casino');
+  const miniMult = () => (1 + 0.1 * rbn('mini')) * techProd('mini');
+  const cdrMult = () => 1 - 0.03 * Math.min(20, rbn('cdr'));
   const afkLimit = () => Math.min(AFK_MAX_MS, AFK_BASE_MS + AFK_STEP_MS * rbn('time'));
-  const overPerClick = () => 0.2 + 0.1 * rbn('over');
+  const overPerClick = () => 0.2 + 0.1 * rbn('over') + techSum('over');
+  const claimMult = () => 1 + 0.1 * rbn('claim');
+  const startMoney = () => (rbn('start') > 0 ? mul(1000, powN(5, rbn('start'))) : ZERO);
   const siteMult = () => (siteActive ? SITE_MULT : 1);
 
-  const priceOf = (d, have, n) => d.base * Math.pow(d.g, have) * (Math.pow(d.g, n) - 1) / (d.g - 1) * discount();
-  function maxAfford(d, have, budget) {
-    const first = d.base * Math.pow(d.g, have) * discount();
-    if (!(budget >= first)) return 0;
-    let n = Math.floor(Math.log(budget / discount() * (d.g - 1) / (d.base * Math.pow(d.g, have)) + 1) / Math.log(d.g));
-    if (!isFinite(n) || n < 0) n = 0;
-    n = Math.min(n, MAX_OWNED);
-    while (n > 0 && priceOf(d, have, n) > budget) n--;
-    while (n < MAX_OWNED && priceOf(d, have, n + 1) <= budget) n++;
+  // Prix de n achats consécutifs : base * g^possédés * (g^n - 1) / (g - 1) * réduction
+  function priceOf(d, have, n, disc) {
+    const first = mul(d.base, powN(d.g, have));
+    if (n === 1) return mul(first, disc);
+    const geo = div(sub(powN(d.g, n), ONE), d.g - 1);
+    return mul(mul(first, geo), disc);
+  }
+  function maxAfford(d, have, budget, disc) {
+    const first = priceOf(d, have, 1, disc);
+    if (lt(budget, first)) return 0;
+    const lg = Math.log10(d.g);
+    const x = add(mul(div(budget, first), d.g - 1), ONE);
+    const lim = Math.min(MAX_BUY, Math.max(0, MAX_OWNED - have));
+    let n = Math.floor(log10(x) / lg);
+    if (!isFinite(n) || n < 1) n = 1;
+    n = Math.min(n, lim);
+    while (n > 1 && gt(priceOf(d, have, n, disc), budget)) n--;
+    while (n < lim && lte(priceOf(d, have, n + 1, disc), budget)) n++;
     return n;
   }
 
-  const mult = () => 1 + PRESTIGE_BONUS * S.prestige;
-  const upMult = () => UPS.reduce((a, d) => (S.ups && S.ups[d.id] ? a * d.mult : a), 1);
-  const perClick = () => (1 + CLICKS.reduce((a, d) => a + owned(S.clicks, d.id) * d.add, 0)) * mult() * upMult() * clickRb() * siteMult();
-  const perSecond = () => GENS.reduce((a, d) => a + owned(S.gens, d.id) * d.cps, 0) * mult() * upMult() * passRb() * siteMult();
-  const prestigeGain = () => Math.floor(Math.sqrt(S.run / PRESTIGE_DIVISOR));
-  const rebirthGain = () => Math.floor(Math.cbrt(S.rrun / REBIRTH_DIVISOR));
+  const mult = () => add(1, mul(PRESTIGE_BONUS + 0.01 * rbn('prest'), S.prestige));
+  const upMult = () => {
+    let a = ONE;
+    Object.keys(S.ups || {}).forEach((id) => { const d = BY.ups[id]; if (d && S.ups[id]) a = mul(a, d.mult); });
+    return a;
+  };
+  const clickFactor = () => mul(mul(mult(), upMult()), clickRb() * techProd('click') * globMult() * siteMult());
+  const passFactor = () => mul(mul(mult(), upMult()), passRb() * techProd('pass') * globMult() * siteMult());
+  function perClick(cf) {
+    let a = ONE;
+    Object.keys(S.clicks).forEach((id) => { const d = BY.clicks[id]; if (d) a = add(a, mul(d.add, S.clicks[id])); });
+    return mul(a, cf || clickFactor());
+  }
+  // Les clics automatiques (Recherche) rapportent la valeur d'un clic, par seconde
+  function perSecond(pf, cf) {
+    let a = ZERO;
+    Object.keys(S.gens).forEach((id) => { const d = BY.gens[id]; if (d) a = add(a, mul(d.cps, S.gens[id])); });
+    a = mul(a, pf || passFactor());
+    const au = techSum('auto');
+    return au > 0 ? add(a, mul(perClick(cf), au)) : a;
+  }
+  const prestigeGain = () => floor(mul(sqrt(div(S.run, PRESTIGE_DIVISOR)), 1 + 0.1 * rbn('prgain')));
+  const rebirthGain = () => floor(mul(cbrt(div(S.rrun, REBIRTH_DIVISOR)), 1 + 0.1 * rbn('rbgain')));
+
+  // Cochon : revenu hors ligne et capacité (la limite de temps AFK fixe le montant maximum)
+  const pigRate = () => mul(perSecond(), OFFLINE_BASE_RATE * afkMult());
+  const pigCap = () => mul(pigRate(), afkLimit() / 1000);
 
   function earn(x) {
-    S.money = Math.min(MAX_VALUE, S.money + x);
-    S.run = Math.min(MAX_VALUE, S.run + x);
-    S.rrun = Math.min(MAX_VALUE, S.rrun + x);
-    S.total = Math.min(MAX_VALUE, S.total + x);
+    x = from(x);
+    S.money = add(S.money, x);
+    S.run = add(S.run, x);
+    S.rrun = add(S.rrun, x);
+    S.total = add(S.total, x);
   }
 
   /* ---------- Stockage ---------- */
@@ -333,7 +601,8 @@
       else { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) { /* ignore */ } }
     }
   };
-  function save() { S.lastSeen = Date.now(); store.set(SAVE_KEY, S); }
+  function save() { S.lastSeen = Date.now(); store.set(SAVE_KEY, pack(S)); }
+
 
   function randomId() {
     const b = new Uint8Array(16);
@@ -421,7 +690,7 @@
   function num(v, max) {
     v = Number(v);
     if (!isFinite(v) || v < 0) return 0;
-    return Math.min(v, max === undefined ? MAX_VALUE : max);
+    return Math.min(v, max === undefined ? 1e15 : max);
   }
   function countMap(src, defs, max) {
     const out = {};
@@ -433,13 +702,15 @@
   }
   function sanitize(o) {
     const s = fresh();
-    s.money = num(o.money); s.run = num(o.run); s.rrun = num(o.rrun); s.total = num(o.total);
+    s.money = from(o.money); s.run = from(o.run); s.rrun = from(o.rrun); s.total = from(o.total);
     s.clicks = countMap(o.clicks, CLICKS, MAX_OWNED);
     s.gens = countMap(o.gens, GENS, MAX_OWNED);
     UPS.forEach((d) => { if (o.ups && o.ups[d.id]) s.ups[d.id] = 1; });
-    s.prestige = Math.floor(num(o.prestige));
+    TECHS.forEach((d) => { if (o.tech && o.tech[d.id]) s.tech[d.id] = 1; });
+    s.pig = from(o.pig);
+    s.prestige = floor(from(o.prestige));
     s.resets = Math.floor(num(o.resets));
-    s.rp = Math.floor(num(o.rp));
+    s.rp = floor(from(o.rp));
     s.rebirths = Math.floor(num(o.rebirths));
     s.over = num(o.over);
     s.clicksMade = Math.floor(num(o.clicksMade));
@@ -459,7 +730,8 @@
     s.lastSeen = ls > 0 ? ls : Date.now();
     return s;
   }
-  const GAMES_CD_KEYS = ['coins', 'memory', 'math', 'reflex'];
+
+  const GAMES_CD_KEYS = ['coins', 'memory', 'math', 'reflex', 'mole', 'simon', 'hilo', 'catch'];
 
   /* ---------- Interface : références ---------- */
   const el = {
@@ -467,6 +739,13 @@
     earn: $('#earn'), notice: $('#notice'), siteBadge: $('#site-badge'),
     stClicks: $('#st-clicks'), stTotal: $('#st-total'), stMult: $('#st-mult'),
     listClicks: $('#list-clicks'), listGens: $('#list-gens'), listUps: $('#list-ups'), upsTitle: $('#ups-title'),
+    listTech: $('#list-tech'), techTitle: $('#tech-title'),
+    diceFace: $('#dice-face'), diceBtns: $$('#cg-dice [data-dice]'),
+    afkModal: $('#afk-modal'), afkAway: $('#afk-away'), afkGain: $('#afk-gain'), afkTotal: $('#afk-total'),
+    afkGo: $('#afk-go'), afkClose: $('#afk-close'),
+    adminModal: $('#admin-modal'), adminText: $('#admin-text'), adminCode: $('#admin-code'), adminMsg: $('#admin-msg'),
+    adminApply: $('#admin-apply'), adminRefresh: $('#admin-refresh'), adminClose: $('#admin-close'),
+    adminEncrypt: $('#admin-encrypt'), adminLoad: $('#admin-load'), adminOpen: $('#admin-open'),
     reels: $$('#reels .reel'), spin: $('#spin'), result: $('#result'),
     betShow: $('#bet-show'),
     flipFace: $('#flip-face'), flipBtns: [$('#flip-heads'), $('#flip-tails')],
@@ -482,19 +761,31 @@
     overPer: $('#over-per'), overCount: $('#over-count'), overVal: $('#over-val'), claim: $('#claim')
   };
 
-  const rows = { clicks: {}, gens: {}, ups: {}, rb: {}, skins: {}, bgs: {} };
+
+  const rows = { clicks: {}, gens: {}, ups: {}, tech: {}, rb: {}, skins: {}, bgs: {} };
+  const hooks = [];
   let buyMode = '1';
+  let curTab = 'game';
+
+  // Écritures DOM seulement quand la valeur change
+  function setT(node, txt) { if (node._t !== txt) { node.textContent = txt; node._t = txt; } }
+  function showRow(r, on) {
+    if (r.on !== on) { r.item.style.display = on ? '' : 'none'; r.on = on; }
+  }
 
   /* ---------- Boutique ---------- */
   function buildShop() {
-    UPS.forEach((d) => { rows.ups[d.id] = makeRow(el.listUps, () => buyUp(d)); });
+    UPS.forEach((d) => { rows.ups[d.id] = makeRow(el.listUps, () => buyOnce('ups', d)); });
+    TECHS.forEach((d) => { rows.tech[d.id] = makeRow(el.listTech, () => buyOnce('tech', d)); });
     CLICKS.forEach((d) => { rows.clicks[d.id] = makeRow(el.listClicks, () => buy('clicks', d)); });
     GENS.forEach((d) => { rows.gens[d.id] = makeRow(el.listGens, () => buy('gens', d)); });
   }
 
-  function makeRow(parent, onBuy, extraClass) {
+  function makeRow(parent, onBuy, extraClass, withThumb) {
     const item = document.createElement('div');
     item.className = 'item' + (extraClass ? ' ' + extraClass : '');
+    let thumb = null;
+    if (withThumb) { thumb = document.createElement('div'); thumb.className = 'thumb'; item.appendChild(thumb); }
     const info = document.createElement('div');
     info.className = 'info';
     const name = document.createElement('div'); name.className = 'name';
@@ -508,91 +799,114 @@
     btn.addEventListener('click', onBuy);
     item.append(info, btn);
     parent.appendChild(item);
-    return { item, name, desc, own, btn, qty, price };
+    return { item, name, desc, own, btn, qty, price, thumb, on: true };
   }
 
   function buy(kind, d) {
     const have = owned(S[kind], d.id);
-    const n = buyMode === 'max' ? maxAfford(d, have, S.money) : Number(buyMode);
-    if (n < 1 || have + n > MAX_OWNED * 4) return;
-    const price = priceOf(d, have, n);
-    if (!(S.money >= price)) return;
-    S.money = Math.max(0, S.money - price);
+    const disc = discount();
+    const n = buyMode === 'max' ? maxAfford(d, have, S.money, disc) : Number(buyMode);
+    if (n < 1 || have + n > MAX_OWNED) return;
+    const price = priceOf(d, have, n, disc);
+    if (!gte(S.money, price)) return;
+    S.money = sub(S.money, price);
     S[kind][d.id] = have + n;
     render();
     save();
   }
 
-  function buyUp(d) {
-    if (S.ups[d.id]) return;
-    const price = d.base * discount();
-    if (!(S.money >= price)) return;
-    S.money = Math.max(0, S.money - price);
-    S.ups[d.id] = 1;
+  // Achats uniques : multiplicateurs (kind 'ups') et recherche (kind 'tech')
+  function buyOnce(kind, d) {
+    if (S[kind][d.id]) return;
+    const price = mul(d.base, discount());
+    if (!gte(S.money, price)) return;
+    S.money = sub(S.money, price);
+    S[kind][d.id] = 1;
     render();
     save();
   }
 
-  function updateUps() {
-    let teaser = false, bought = 0;
-    UPS.forEach((d) => {
-      const r = rows.ups[d.id];
-      if (S.ups[d.id]) { bought++; r.item.style.display = 'none'; return; }
-      const revealed = S.total >= d.base * 0.4;
-      if (!revealed && teaser) { r.item.style.display = 'none'; return; }
-      r.item.style.display = '';
-      r.item.classList.toggle('locked', !revealed);
-      r.name.textContent = revealed ? d.name : '???';
-      r.desc.textContent = revealed ? 'x' + dec(d.mult, 2) + ' sur tous les gains' : 'Continue de gagner de l\'argent';
-      r.own.textContent = '';
-      r.qty.textContent = revealed ? 'Achat unique' : '';
-      const price = d.base * discount();
-      r.price.textContent = money(price);
-      r.btn.disabled = !revealed || !(S.money >= price);
-      if (!revealed) teaser = true;
-    });
-    el.upsTitle.textContent = 'Multiplicateurs (' + bought + ' / ' + UPS.length + ') : x' + fmt(upMult());
+  function techDesc(d) {
+    switch (d.type) {
+      case 'click':  return 'x' + dec(d.val, 2) + ' sur les clics';
+      case 'pass':   return 'x' + dec(d.val, 2) + ' sur le revenu passif';
+      case 'over':   return '+' + dec(d.val, 2) + ' surclic par clic';
+      case 'mini':   return 'x' + dec(d.val, 2) + ' gains des mini-jeux';
+      case 'pig':    return 'x' + dec(d.val, 2) + ' revenu du cochon';
+      case 'casino': return 'x' + dec(d.val, 2) + ' gains au casino';
+      case 'disc':   return 'Prix des améliorations x' + dec(d.val, 2);
+      case 'auto':   return '+' + dec(d.val, 2) + ' clic/s automatique';
+      default:       return '';
+    }
   }
 
-  function updateRows(kind, defs, rowMap, text) {
+  function updateOnce(defs, rowMap, map, descFn, disc) {
+    let teaser = false, bought = 0;
+    defs.forEach((d) => {
+      const r = rowMap[d.id];
+      if (map[d.id]) { bought++; showRow(r, false); return; }
+      const revealed = gte(S.run, d.revealB);
+      if (!revealed && teaser) { showRow(r, false); return; }
+      showRow(r, true);
+      r.item.classList.toggle('locked', !revealed);
+      setT(r.name, revealed ? d.name : '???');
+      setT(r.desc, revealed ? descFn(d) : 'Continue de gagner de l\'argent');
+      setT(r.own, '');
+      setT(r.qty, revealed ? 'Achat unique' : '');
+      const price = mul(d.base, disc);
+      setT(r.price, money(price));
+      r.btn.disabled = !revealed || !gte(S.money, price);
+      if (!revealed) teaser = true;
+    });
+    return bought;
+  }
+
+  function updateUps(disc) {
+    const bought = updateOnce(UPS, rows.ups, S.ups, (d) => 'x' + dec(d.mult, 2) + ' sur tous les gains', disc);
+    setT(el.upsTitle, 'Multiplicateurs ' + bought + '/' + UPS.length + ' : x' + fmt(upMult()));
+    const tb = updateOnce(TECHS, rows.tech, S.tech, techDesc, disc);
+    setT(el.techTitle, 'Recherche ' + tb + '/' + TECHS.length);
+  }
+
+  function updateRows(kind, defs, rowMap, text, disc) {
     const map = S[kind];
     let teaser = false;
     defs.forEach((d) => {
       const r = rowMap[d.id];
       const have = owned(map, d.id);
-      const revealed = have > 0 || S.total >= d.base * 0.4;
+      const revealed = have > 0 || gte(S.run, d.revealB);
       if (!revealed) {
-        if (teaser) { r.item.style.display = 'none'; return; }
+        if (teaser) { showRow(r, false); return; }
         teaser = true;
-        r.item.style.display = '';
+        showRow(r, true);
         r.item.classList.add('locked');
-        r.name.textContent = '???';
-        r.desc.textContent = 'Continue de gagner de l\'argent';
-        r.own.textContent = '';
-        r.qty.textContent = '';
-        r.price.textContent = money(d.base * discount());
+        setT(r.name, '???');
+        setT(r.desc, 'Continue de gagner de l\'argent');
+        setT(r.own, '');
+        setT(r.qty, '');
+        setT(r.price, money(mul(d.base, disc)));
         r.btn.disabled = true;
         return;
       }
-      r.item.style.display = '';
+      showRow(r, true);
       r.item.classList.remove('locked');
-      r.name.textContent = d.name;
-      r.desc.textContent = text(d);
-      r.own.textContent = 'Possédés : ' + have;
+      setT(r.name, d.name);
+      setT(r.desc, text(d));
+      setT(r.own, 'Possédés : ' + have);
 
       let n, label;
       if (buyMode === 'max') {
-        n = maxAfford(d, have, S.money);
+        n = maxAfford(d, have, S.money, disc);
         label = n > 0 ? 'x' + n : 'Max';
         if (n < 1) n = 1;
       } else {
         n = Number(buyMode);
         label = 'x' + n;
       }
-      const price = priceOf(d, have, n);
-      r.qty.textContent = label;
-      r.price.textContent = money(price);
-      r.btn.disabled = !(S.money >= price);
+      const price = priceOf(d, have, n, disc);
+      setT(r.qty, label);
+      setT(r.price, money(price));
+      r.btn.disabled = !gte(S.money, price);
     });
   }
 
@@ -603,7 +917,7 @@
   }));
 
   /* ---------- Rebirth : améliorations permanentes ---------- */
-  const rbCost = (d) => Math.ceil(d.base * Math.pow(d.g, rbn(d.id)));
+  const rbCost = (d) => ceil(mul(d.base, powN(d.g, rbn(d.id))));
 
   function rbText(d) {
     const n = rbn(d.id);
@@ -612,9 +926,18 @@
       case 'pass':   return 'Actuel : x' + dec(passRb(), 2) + ' (+0,2x par achat)';
       case 'afk':    return 'Hors ligne : ' + dec(OFFLINE_BASE_RATE * afkMult() * 100, 1) + ' % du passif (+0,2x par achat)';
       case 'casino': return 'Gains : x' + dec(casinoMult(), 2) + ' (+0,05x par achat)';
-      case 'disc':   return 'Prix : x' + dec(discount(), 2) + ' (-0,02x par achat, min. x0,26)';
+      case 'disc':   return 'Prix : x' + dec(discount(), 2) + ' (-0,02x par achat, max. 37)';
       case 'time':   return 'Limite : ' + fmtDur(afkLimit()) + ' (+20 min par achat, max. 36 h)';
       case 'over':   return 'Par clic : ' + dec(overPerClick(), 2) + ' surclic (+0,1 par achat)';
+      case 'glob':   return 'Tous les gains : x' + dec(globMult(), 2) + ' (+0,1x par achat)';
+      case 'prest':  return 'Prestige : +' + dec((PRESTIGE_BONUS + 0.01 * n) * 100, 0) + ' % par point (+1 % par achat, max. 40)';
+      case 'prgain': return 'Points de prestige : x' + dec(1 + 0.1 * n, 2) + ' (+0,1x par achat)';
+      case 'rbgain': return 'Points de rebirth : x' + dec(1 + 0.1 * n, 2) + ' (+0,1x par achat)';
+      case 'claim':  return 'Surclics réclamés : x' + dec(claimMult(), 2) + ' (+0,1x par achat)';
+      case 'mini':   return 'Gains : x' + dec(1 + 0.1 * n, 2) + ' (+0,1x par achat)';
+      case 'cdr':    return 'Délai : -' + dec(Math.min(20, n) * 3, 0) + ' % (-3 % par achat, max. 20)';
+      case 'pig':    return 'Par coup réussi : ' + dec((0.12 + 0.01 * n) * 100, 0) + ' % du cochon (+1 % par achat, max. 8)';
+      case 'start':  return 'Départ : ' + (n > 0 ? money(startMoney()) : 'rien') + ' après chaque reset (x5 par achat)';
       default:       return String(n);
     }
   }
@@ -627,8 +950,8 @@
     const n = rbn(d.id);
     if (n >= d.max) return;
     const cost = rbCost(d);
-    if (S.rp < cost) return;
-    S.rp -= cost;
+    if (lt(S.rp, cost)) return;
+    S.rp = sub(S.rp, cost);
     S.rb[d.id] = n + 1;
     render();
     save();
@@ -638,33 +961,37 @@
     RB.forEach((d) => {
       const r = rows.rb[d.id];
       const n = rbn(d.id);
-      r.name.textContent = d.name;
-      r.desc.textContent = rbText(d);
-      r.own.textContent = 'Niveau : ' + n + (d.max !== Infinity ? ' / ' + d.max : '');
+      setT(r.name, d.name);
+      setT(r.desc, rbText(d));
+      setT(r.own, 'Niveau : ' + n + (d.max !== Infinity ? ' / ' + d.max : ''));
       if (n >= d.max) {
-        r.qty.textContent = '';
-        r.price.textContent = 'Maximum';
+        setT(r.qty, '');
+        setT(r.price, 'Maximum');
         r.btn.disabled = true;
       } else {
         const cost = rbCost(d);
-        r.qty.textContent = 'Points';
-        r.price.textContent = fmt(cost);
-        r.btn.disabled = S.rp < cost;
+        setT(r.qty, 'Points');
+        setT(r.price, fmt(cost));
+        r.btn.disabled = lt(S.rp, cost);
       }
     });
   }
 
   /* ---------- Cosmétiques ---------- */
   function buildCosmetics() {
-    BUTTON_SKINS.forEach((d) => { rows.skins[d.id] = makeRow(el.skinList, () => cosmeticAction('skin', d), ''); });
-    BACKGROUNDS.forEach((d) => { rows.bgs[d.id] = makeRow(el.bgList, () => cosmeticAction('bg', d), ''); });
+    const paint = (r, d) => {
+      if (d.img) r.thumb.style.backgroundImage = 'url(' + d.img + ')';
+      else r.thumb.style.background = d.sw;
+    };
+    BUTTON_SKINS.forEach((d) => { const r = makeRow(el.skinList, () => cosmeticAction('skin', d), '', true); paint(r, d); rows.skins[d.id] = r; });
+    BACKGROUNDS.forEach((d) => { const r = makeRow(el.bgList, () => cosmeticAction('bg', d), '', true); paint(r, d); rows.bgs[d.id] = r; });
   }
 
   function cosmeticAction(kind, d) {
     const own = kind === 'skin' ? S.skins : S.bgs;
     if (!own[d.id]) {
-      if (d.rp) { if (S.rp < d.rp) return; S.rp -= d.rp; }
-      else if (d.money) { if (!(S.money >= d.money)) return; S.money -= d.money; }
+      if (d.rp) { if (lt(S.rp, d.rp)) return; S.rp = sub(S.rp, d.rp); }
+      else if (d.money) { if (lt(S.money, d.money)) return; S.money = sub(S.money, d.money); }
       own[d.id] = 1;
     }
     S[kind] = d.id;
@@ -675,86 +1002,97 @@
   function updateCosmetics(defs, rowMap, own, current) {
     defs.forEach((d) => {
       const r = rowMap[d.id];
-      r.name.textContent = d.name;
+      setT(r.name, d.name);
       r.item.classList.toggle('rp', !!d.rp);
       r.item.classList.toggle('equipped', current === d.id);
-      r.own.textContent = '';
+      setT(r.own, '');
       if (own[d.id]) {
-        r.desc.textContent = current === d.id ? 'Équipé' : 'Possédé';
-        r.qty.textContent = '';
-        r.price.textContent = current === d.id ? 'Équipé' : 'Équiper';
+        setT(r.desc, current === d.id ? 'Équipé' : 'Possédé');
+        setT(r.qty, '');
+        setT(r.price, current === d.id ? 'Équipé' : 'Équiper');
         r.btn.disabled = current === d.id;
       } else if (d.rp) {
-        r.desc.textContent = 'Prix en points de rebirth';
-        r.qty.textContent = 'Points';
-        r.price.textContent = fmt(d.rp);
-        r.btn.disabled = S.rp < d.rp;
+        setT(r.desc, 'Prix en points de rebirth');
+        setT(r.qty, 'Points');
+        setT(r.price, fmt(d.rp));
+        r.btn.disabled = lt(S.rp, d.rp);
       } else {
-        r.desc.textContent = 'Prix en argent';
-        r.qty.textContent = 'Acheter';
-        r.price.textContent = money(d.money);
-        r.btn.disabled = !(S.money >= d.money);
+        setT(r.desc, 'Prix en argent');
+        setT(r.qty, 'Acheter');
+        setT(r.price, money(d.money));
+        r.btn.disabled = lt(S.money, d.money);
       }
     });
   }
 
   /* ---------- Rendu ---------- */
   function render() {
+    const disc = discount(), cf = clickFactor(), pf = passFactor();
+    const pc = perClick(cf), ps = perSecond(pf, cf);
     const t = money(S.money);
-    el.money.textContent = t;
+    setT(el.money, t);
     el.money.style.fontSize = t.length > 24 ? '17px' : t.length > 19 ? '20px' : t.length > 14 ? '23px' : '';
-    el.cps.textContent = money(perSecond()) + '/s';
-    el.cpc.textContent = money(perClick()) + '/clic';
-    el.stClicks.textContent = fmt(S.clicksMade);
-    el.stTotal.textContent = money(S.total);
-    el.stMult.textContent = 'x' + fmt(mult());
+    setT(el.cps, money(ps) + '/s');
+    setT(el.cpc, money(pc) + '/clic');
+    setT(el.stClicks, fmt(S.clicksMade));
+    setT(el.stTotal, money(S.total));
+    setT(el.stMult, 'x' + fmt(mult()));
     el.siteBadge.hidden = !siteActive;
 
-    updateUps();
-    updateRows('clicks', CLICKS, rows.clicks, (d) => '+' + fmt(d.add * mult() * upMult() * clickRb() * siteMult()) + ' $ par clic');
-    updateRows('gens', GENS, rows.gens, (d) => '+' + fmt(d.cps * mult() * upMult() * passRb() * siteMult()) + ' $ par seconde');
+    if (curTab === 'shop') {
+      updateUps(disc);
+      updateRows('clicks', CLICKS, rows.clicks, (d) => '+' + fmt(mul(d.add, cf)) + ' $ par clic', disc);
+      updateRows('gens', GENS, rows.gens, (d) => '+' + fmt(mul(d.cps, pf)) + ' $ par seconde', disc);
+    }
 
     const gain = prestigeGain();
-    el.prPoints.textContent = fmt(S.prestige);
-    el.prGain.textContent = '+' + fmt(gain);
-    el.prResets.textContent = fmt(S.resets);
-    el.prestige.disabled = gain < 1;
-    el.prHint.textContent = gain < 1
+    setT(el.prPoints, fmt(S.prestige));
+    setT(el.prGain, '+' + fmt(gain));
+    setT(el.prResets, fmt(S.resets));
+    el.prestige.disabled = lt(gain, ONE);
+    setT(el.prHint, lt(gain, ONE)
       ? 'Il faut gagner ' + money(PRESTIGE_DIVISOR) + ' dans cette partie pour obtenir un premier point.'
-      : 'Partie en cours : ' + money(S.run) + ' gagnés.';
+      : 'Partie en cours : ' + money(S.run) + ' gagnés.');
 
     const rgain = rebirthGain();
-    el.rbPoints.textContent = fmt(S.rp);
-    el.rbGain.textContent = '+' + fmt(rgain);
-    el.rbCount.textContent = fmt(S.rebirths);
-    el.rebirth.disabled = rgain < 1;
-    el.rbHint.textContent = rgain < 1
+    setT(el.rbPoints, fmt(S.rp));
+    setT(el.rbGain, '+' + fmt(rgain));
+    setT(el.rbCount, fmt(S.rebirths));
+    el.rebirth.disabled = lt(rgain, ONE);
+    setT(el.rbHint, lt(rgain, ONE)
       ? 'Il faut gagner ' + money(REBIRTH_DIVISOR) + ' depuis le dernier rebirth pour obtenir 1 point. Actuel : ' + money(S.rrun) + '.'
-      : 'Depuis le dernier rebirth : ' + money(S.rrun) + ' gagnés.';
-    updateRebirthRows();
+      : 'Depuis le dernier rebirth : ' + money(S.rrun) + ' gagnés.');
+    if (curTab === 'rebirth') updateRebirthRows();
 
-    updateCosmetics(BUTTON_SKINS, rows.skins, S.skins, S.skin);
-    updateCosmetics(BACKGROUNDS, rows.bgs, S.bgs, S.bg);
+    if (curTab === 'style') {
+      updateCosmetics(BUTTON_SKINS, rows.skins, S.skins, S.skin);
+      updateCosmetics(BACKGROUNDS, rows.bgs, S.bgs, S.bg);
+    }
     document.body.dataset.skin = S.skin;
     document.body.dataset.bg = S.bg;
 
-    el.overPer.textContent = '+' + dec(overPerClick(), 2) + '/clic';
-    el.overCount.textContent = fmtOver(S.over);
-    el.overVal.textContent = '= ' + money(S.over * perClick());
+    setT(el.overPer, '+' + dec(overPerClick(), 2) + '/clic');
+    setT(el.overCount, fmtOver(S.over));
+    setT(el.overVal, '= ' + money(mul(mul(S.over, pc), claimMult())));
     el.claim.disabled = !(S.over > 0);
 
-    const canPlay = !busy && S.money >= 1;
+    const canPlay = !busy && gte(S.money, ONE);
     el.spin.disabled = !canPlay;
     el.flipBtns.forEach((b) => { b.disabled = !canPlay; });
     el.rouBtns.forEach((b) => { b.disabled = !canPlay; });
-    el.betShow.textContent = 'Mise : ' + money(effBet());
+    el.diceBtns.forEach((b) => { b.disabled = !canPlay; });
+    setT(el.betShow, 'Mise : ' + money(effBet()));
+
+    const pigTab = $('.tab[data-tab="piggy"]');
+    if (pigTab) pigTab.classList.toggle('has', gte(S.pig, ONE));
+    hooks.forEach((fn) => { try { fn(); } catch (e) { /* ignore */ } });
   }
 
   /* ---------- Clic et surclics ---------- */
   el.earn.addEventListener('click', (e) => {
     const gain = perClick();
     earn(gain);
-    S.over = Math.min(MAX_VALUE, S.over + overPerClick());
+    S.over += overPerClick();
     S.clicksMade++;
     floatText('+' + fmt(gain), e);
     render();
@@ -762,13 +1100,14 @@
 
   el.claim.addEventListener('click', () => {
     if (!(S.over > 0)) return;
-    const gain = S.over * perClick();
+    const gain = mul(mul(S.over, perClick()), claimMult());
     S.over = 0;
     earn(gain);
     flash('Surclics réclamés : +' + money(gain));
     render();
     save();
   });
+
 
   function floatText(txt, e) {
     const zone = $('.click-zone');
@@ -782,10 +1121,11 @@
     zone.appendChild(s);
   }
 
+
   /* ---------- Casino ---------- */
   let busy = false;
-  let bet = 10;
-  const effBet = () => Math.max(0, Math.min(bet, Math.floor(S.money)));
+  let bet = from(10);
+  const effBet = () => bmin(bet, floor(S.money));
 
   function drawSlot() {
     let r = Math.random() * 100;
@@ -838,17 +1178,17 @@
 
   function takeBet() {
     const b = effBet();
-    if (b < 1) { setResult('lose', 'Solde insuffisant.'); return 0; }
-    S.money -= b;
+    if (lt(b, ONE)) { setResult('lose', 'Solde insuffisant.'); return null; }
+    S.money = sub(S.money, b);
     return b;
   }
 
   // Les gains reçoivent le bonus de rebirth du casino puis le bonus de site, en dernier.
-  function settle(b, mult, label) {
-    const win = mult > 0 ? Math.floor(b * mult * casinoMult() * siteMult() * (1 + 1e-9)) : 0;
-    S.money = Math.min(MAX_VALUE, S.money + win);
-    if (win > b) setResult('win', label + ' : +' + money(win - b));
-    else if (win > 0) setResult('lose', label + ' : ' + money(win) + ' récupérés sur ' + money(b));
+  function settle(b, m, label) {
+    const win = m > 0 ? floor(mul(mul(b, m * casinoMult() * siteMult()), 1 + 1e-9)) : ZERO;
+    S.money = add(S.money, win);
+    if (gt(win, b)) setResult('win', label + ' : +' + money(sub(win, b)));
+    else if (!isZero(win)) setResult('lose', label + ' : ' + money(win) + ' récupérés sur ' + money(b));
     else setResult('lose', label + ' : -' + money(b));
     busy = false;
     render();
@@ -856,7 +1196,7 @@
   }
 
   $$('#quick button').forEach((b) => b.addEventListener('click', () => {
-    bet = b.dataset.bet === 'min' ? 1 : Math.max(1, Math.floor(S.money * Number(b.dataset.bet)));
+    bet = b.dataset.bet === 'min' ? ONE : bmax(ONE, floor(mul(S.money, Number(b.dataset.bet))));
     render();
   }));
 
@@ -908,6 +1248,28 @@
     }, 600);
   }));
 
+  // Dés : deux dés, pari sur moins de 7 (x2,2), exactement 7 (x5,5) ou plus de 7 (x2,2)
+  el.diceBtns.forEach((btn) => btn.addEventListener('click', () => {
+    if (busy) return;
+    const b = takeBet();
+    if (!b) return;
+    busy = true;
+    setResult('', 'Les dés roulent...');
+    render();
+    const d1 = 1 + Math.floor(Math.random() * 6), d2 = 1 + Math.floor(Math.random() * 6);
+    let ticks = 0;
+    const timer = setInterval(() => {
+      ticks++;
+      el.diceFace.textContent = ticks >= 9 ? String(d1 + d2) : String(2 + Math.floor(Math.random() * 11));
+      if (ticks >= 9) {
+        clearInterval(timer);
+        const total = d1 + d2, choice = btn.dataset.dice;
+        const m = (choice === 'under' && total < 7) || (choice === 'over' && total > 7) ? 2.2 : (choice === 'seven' && total === 7 ? 5.5 : 0);
+        settle(b, m, 'Dés ' + d1 + ' + ' + d2 + ' = ' + total);
+      }
+    }, 70);
+  }));
+
   // Roulette
   el.rouBtns.forEach((btn) => btn.addEventListener('click', () => {
     if (busy) return;
@@ -951,17 +1313,18 @@
     });
   }
 
+
   const keepAlways = () => ({
     total: S.total, clicksMade: S.clicksMade, cd: S.cd, resets: S.resets,
-    rp: S.rp, rebirths: S.rebirths, rb: S.rb,
+    rp: S.rp, rebirths: S.rebirths, rb: S.rb, pig: S.pig,
     skins: S.skins, bgs: S.bgs, skin: S.skin, bg: S.bg
   });
 
   twoStep(el.prestige, 'Confirmer le prestige', () => {
     const gain = prestigeGain();
-    if (gain < 1) return;
+    if (lt(gain, ONE)) return;
     const keep = Object.assign(keepAlways(), {
-      prestige: S.prestige + gain, resets: S.resets + 1, rrun: S.rrun, over: S.over
+      prestige: add(S.prestige, gain), resets: S.resets + 1, rrun: S.rrun, over: S.over, tech: S.tech, money: startMoney()
     });
     S = Object.assign(fresh(), keep);
     flash('Prestige effectué : +' + fmt(gain) + ' point(s).');
@@ -971,10 +1334,11 @@
 
   twoStep(el.rebirth, 'Confirmer le rebirth', () => {
     const gain = rebirthGain();
-    if (gain < 1) return;
+    if (lt(gain, ONE)) return;
     const keep = keepAlways();
-    keep.rp = S.rp + gain;
+    keep.rp = add(S.rp, gain);
     keep.rebirths = S.rebirths + 1;
+    keep.money = startMoney();
     S = Object.assign(fresh(), keep);
     flash('Rebirth effectué : +' + fmt(gain) + ' point(s) de rebirth.');
     render();
@@ -1012,7 +1376,7 @@
 
   function buildExport() {
     save();
-    return encode({ g: 'romanomoney', ver: VERSION, dev: meta.id, t: Date.now(), s: S });
+    return encode({ g: 'romanomoney', ver: VERSION, dev: meta.id, t: Date.now(), s: pack(S) });
   }
 
   el.expFile.addEventListener('click', () => {
@@ -1058,7 +1422,7 @@
     }
     if (!data || data.g !== 'romanomoney' || !data.s || typeof data.s !== 'object') return dataMsg('bad', 'Fichier non reconnu.');
     S = sanitize(data.s);
-    applyOffline();
+    showAfk(accrueOffline());
     render();
     save();
     el.impText.value = '';
@@ -1083,19 +1447,137 @@
     flashTimer = setTimeout(() => { el.notice.textContent = ''; }, 6000);
   }
 
-  $$('.tab').forEach((t) => t.addEventListener('click', () => {
-    $$('.tab').forEach((x) => x.classList.toggle('active', x === t));
-    $$('.panel').forEach((p) => p.classList.toggle('active', p.id === 'panel-' + t.dataset.tab));
-  }));
+  function showTab(name) {
+    curTab = name;
+    $$('.tab').forEach((x) => x.classList.toggle('active', x.dataset.tab === name));
+    $$('.panel').forEach((p) => p.classList.toggle('active', p.id === 'panel-' + name));
+    document.body.classList.toggle('wide', name === 'shop');
+    render();
+  }
+  $$('.tab').forEach((t) => t.addEventListener('click', () => showTab(t.dataset.tab)));
 
-  /* ---------- API pour les mini-jeux ---------- */
+  /* ---------- API pour les mini-jeux (les montants sont des grands nombres) ---------- */
   window.Game = {
-    unit: () => Math.max(perClick() * 25, perSecond() * 45),
-    earn: (x) => { earn(x); render(); save(); },
+    B,
+    unit: () => mul(bmax(mul(perClick(), 25), mul(perSecond(), 45)), miniMult()),
+    earn: (x) => { earn(from(x)); render(); save(); },
     fmt, money, flash,
     cdLeft: (id) => Math.max(0, ((S.cd || {})[id] || 0) - Date.now()),
-    cdStart: (id, sec) => { S.cd = S.cd || {}; S.cd[id] = Date.now() + sec * 1000; save(); }
+    cdStart: (id, sec) => { S.cd = S.cd || {}; S.cd[id] = Date.now() + sec * 1000 * cdrMult(); save(); },
+    hook: (fn) => { hooks.push(fn); },
+    pigInfo: () => ({ amount: S.pig, cap: pigCap(), rate: pigRate(), hit: 0.12 + 0.01 * Math.min(8, rbn('pig')), limitMs: afkLimit() }),
+    pigTake: (x) => {
+      x = bmin(from(x), S.pig);
+      S.pig = sub(S.pig, x);
+      earn(x);
+      render();
+      save();
+      return x;
+    }
   };
+
+  /* ---------- Cochon : accumulation hors ligne et fenêtre de retour ---------- */
+  // Le revenu hors ligne s'accumule dans le cochon jusqu'à sa capacité (limite d'argent).
+  // Le joueur peut revenir avant la limite et récupérer ce qui est déjà accumulé.
+  function accrueOffline() {
+    const now = Date.now();
+    const raw = Math.max(0, now - (S.lastSeen || now));
+    const rate = pigRate(), cap = pigCap();
+    const before = S.pig;
+    const after = bmax(before, bmin(cap, add(before, mul(rate, raw / 1000))));
+    S.pig = after;
+    return { raw, gained: sub(after, before), full: !isZero(cap) && gte(after, cap), cap };
+  }
+
+  function showAfk(info) {
+    if (lt(info.gained, ONE) || info.raw < 30000) return;
+    el.afkAway.textContent = 'Absence : ' + fmtDur(info.raw);
+    el.afkGain.textContent = '+' + money(info.gained);
+    el.afkTotal.textContent = 'Dans le cochon : ' + money(S.pig) + ' / ' + money(info.cap) + (info.full ? ' (plein)' : '');
+    el.afkModal.hidden = false;
+    flash('Cochon : +' + money(info.gained) + ' pendant ton absence.');
+  }
+  el.afkClose.addEventListener('click', () => { el.afkModal.hidden = true; });
+  el.afkGo.addEventListener('click', () => { el.afkModal.hidden = true; showTab('piggy'); });
+
+  /* ---------- Panneau admin : combo de flèches puis édition du code décrypté ---------- */
+  const ADMIN_COMBO = ['ArrowUp', 'ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowLeft', 'ArrowLeft', 'ArrowUp'];
+  let keyBuf = [];
+
+  function adminSay(cls, txt) { el.adminMsg.className = 'datamsg ' + cls; el.adminMsg.textContent = txt; }
+  const adminSnapshot = () => JSON.stringify({ g: 'romanomoney', ver: VERSION, t: Date.now(), s: pack(S) }, null, 2);
+
+  function openAdmin() {
+    el.adminText.value = adminSnapshot();
+    el.adminCode.value = '';
+    adminSay('', 'Modifie le JSON puis clique sur Appliquer : le jeu change en direct.');
+    el.adminModal.hidden = false;
+  }
+
+  function unlockAdmin() {
+    if (!meta.admin) { meta.admin = true; store.set(META_KEY, meta); }
+    el.adminOpen.hidden = false;
+    openAdmin();
+  }
+
+  function applyAdmin() {
+    let obj;
+    try { obj = JSON.parse(el.adminText.value); } catch (e) { return adminSay('bad', 'JSON invalide : ' + e.message); }
+    const src = obj && typeof obj === 'object' && obj.s && typeof obj.s === 'object' ? obj.s : obj;
+    if (!src || typeof src !== 'object' || Array.isArray(src)) return adminSay('bad', 'Format non reconnu.');
+    const ns = Object.assign(fresh(), src);
+    for (let i = 0; i < BIG_FIELDS.length; i++) {
+      const k = BIG_FIELDS[i];
+      if (src[k] !== undefined && !valid(src[k])) return adminSay('bad', 'Nombre invalide pour "' + k + '" (exemples : 1500, "2,5e400").');
+      ns[k] = from(src[k] === undefined ? 0 : src[k]);
+    }
+    ['clicks', 'gens', 'ups', 'tech', 'rb', 'cd', 'skins', 'bgs'].forEach((k) => {
+      if (!ns[k] || typeof ns[k] !== 'object' || Array.isArray(ns[k])) ns[k] = {};
+    });
+    for (const k of ['clicks', 'gens', 'rb']) {
+      Object.keys(ns[k]).forEach((id) => {
+        const n = Math.floor(Number(ns[k][id]));
+        if (isFinite(n) && n > 0) ns[k][id] = Math.min(n, 1e9); else delete ns[k][id];
+      });
+    }
+    ['resets', 'rebirths', 'over', 'clicksMade'].forEach((k) => {
+      const n = Number(ns[k]);
+      ns[k] = isFinite(n) && n >= 0 ? n : 0;
+    });
+    const ls = Number(ns.lastSeen);
+    ns.lastSeen = isFinite(ls) && ls > 0 ? ls : Date.now();
+    ns.skins.classic = 1; ns.bgs.dark = 1;
+    if (!ns.skins[ns.skin]) ns.skin = 'classic';
+    if (!ns.bgs[ns.bg]) ns.bg = 'dark';
+    ns.v = DATA_VERSION;
+    S = ns;
+    render();
+    save();
+    el.adminText.value = adminSnapshot();
+    adminSay('good', 'Appliqué en direct.');
+  }
+
+  el.adminApply.addEventListener('click', applyAdmin);
+  el.adminRefresh.addEventListener('click', () => { el.adminText.value = adminSnapshot(); adminSay('good', 'Valeurs actuelles chargées.'); });
+  el.adminClose.addEventListener('click', () => { el.adminModal.hidden = true; });
+  el.adminOpen.addEventListener('click', openAdmin);
+  el.adminEncrypt.addEventListener('click', () => {
+    try { el.adminCode.value = encode(JSON.parse(el.adminText.value)); adminSay('good', 'Code chiffré généré.'); }
+    catch (e) { adminSay('bad', 'JSON invalide : ' + e.message); }
+  });
+  el.adminLoad.addEventListener('click', () => {
+    try { el.adminText.value = JSON.stringify(decode(el.adminCode.value), null, 2); adminSay('good', 'Code décrypté. Clique sur Appliquer pour l\'utiliser.'); }
+    catch (e) { adminSay('bad', e.message === 'altered' ? 'Code modifié ou corrompu.' : 'Code non reconnu.'); }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    if (e.key === 'Escape') { el.adminModal.hidden = true; return; }
+    keyBuf.push(e.key);
+    if (keyBuf.length > ADMIN_COMBO.length) keyBuf.shift();
+    if (keyBuf.join() === ADMIN_COMBO.join()) { keyBuf = []; unlockAdmin(); }
+  });
 
   /* ---------- Démarrage ---------- */
   function detectSite() {
@@ -1111,29 +1593,19 @@
     });
   }
 
-  function applyOffline() {
-    const raw = Math.max(0, Date.now() - (S.lastSeen || Date.now()));
-    if (raw < 60000) return;
-    const limit = afkLimit();
-    const delta = Math.min(raw, limit);
-    const rate = OFFLINE_BASE_RATE * afkMult();
-    const gained = perSecond() * rate * delta / 1000;
-    if (gained >= 1) {
-      earn(gained);
-      flash('Hors ligne (' + fmtDur(delta) + (raw > limit ? ', limite atteinte' : '') + ') : +' + money(gained));
-    }
-  }
 
   function start() {
     buildShop();
     buildRebirth();
     buildCosmetics();
     renderInfos();
-    applyOffline();
+    el.adminOpen.hidden = !meta.admin;
+    const info = accrueOffline();
     render();
+    showAfk(info);
     setInterval(() => {
       const cps = perSecond();
-      if (cps > 0) { earn(cps / 10); render(); }
+      if (!isZero(cps)) { earn(mul(cps, 0.1)); render(); }
     }, 100);
     setInterval(save, 2000);
     window.addEventListener('pagehide', save);
@@ -1143,9 +1615,10 @@
   Promise.all([store.get(SAVE_KEY), store.get(META_KEY), detectSite()]).then((r) => {
     const saved = r[0];
     meta = (r[1] && r[1].id) ? r[1] : { id: randomId() };
+    meta.admin = !!meta.admin;
     if (!r[1] || !r[1].id) store.set(META_KEY, meta);
     siteActive = r[2];
-    if (saved && typeof saved === 'object') S = Object.assign(fresh(), migrate(saved));
+    if (saved && typeof saved === 'object') S = unpack(Object.assign(fresh(), migrate(saved)));
     start();
   });
 })();

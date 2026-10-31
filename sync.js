@@ -157,11 +157,18 @@
       if (e.source !== window.parent || !e.data) return;
       if (e.data.rmn === 'load' && window.__rmn) { try { window.__rmn.importCode(e.data.code); flush(true); } catch (x) { /* ignore */ } }
       if (e.data.rmn === 'flush') flush(true);
+      if (e.data.rmn === 'xchg') {
+        let r = { ok: false, reason: 'game' };
+        try { if (window.__rmn && window.__rmn.exchange) r = window.__rmn.exchange(e.data.units); } catch (x) { r = { ok: false, reason: 'error' }; }
+        if (r.ok) flush(true);
+        window.parent.postMessage({ rmn: 'xchg-res', nonce: String(e.data.nonce || ''), ok: !!r.ok, reason: r.reason || '' }, '*');
+      }
     });
     const markSite = () => { if (window.__rmn && window.__rmn.setSite) window.__rmn.setSite(true); };
     window.addEventListener('load', () => { markSite(); setTimeout(markSite, 400); setTimeout(markSite, 1500); });
     const st = document.createElement('style'); st.textContent = 'body{margin:0 auto}'; document.addEventListener('DOMContentLoaded', () => document.head.appendChild(st));
     window.parent.postMessage({ rmn: 'ready' }, '*');
+    try { if (window.__rmn && window.__rmn.adminOpened && window.__rmn.adminOpened()) window.parent.postMessage({ rmn: 'admin-opened' }, '*'); } catch (x) { /* ignore */ }
     return;
   }
 
@@ -234,6 +241,43 @@
 
   function hello() { window.postMessage({ rmn: 'ext-hello' }, location.origin); }
 
+  /* Échange contre des jetons : 1,60e1615 par unité, retiré directement de la sauvegarde de l'extension.
+   * Refusé si le panneau administrateur a déjà été ouvert dans l'extension. */
+  function bigNorm(m, e) { if (!(m > 0)) return [0, 0]; const k = Math.floor(Math.log10(m)); m = m / Math.pow(10, k); e += k; if (m >= 10) { m /= 10; e++; } else if (m < 1) { m *= 10; e--; } return [e, m]; }
+  function bigMinus(a, units) { // a : texte "m e n" ; retire units * 1,6e1615 ; renvoie le nouveau texte ou null si fonds insuffisants
+    const x = bigParts(a), c = bigNorm(1.6 * units, 1615);
+    const cmpv = x[0] !== c[0] ? (x[0] > c[0] ? 1 : -1) : (Math.abs(x[1] - c[1]) <= 1e-11 * c[1] ? 0 : (x[1] > c[1] ? 1 : -1));
+    if (x[1] === 0 || cmpv <= 0) return null;
+    const d = x[0] - c[0];
+    if (d > 17) return String(a);
+    const n = bigNorm(x[1] - c[1] / Math.pow(10, d), x[0]);
+    return n[1] === 0 ? '0' : String(Number(n[1].toPrecision(15))) + 'e' + n[0];
+  }
+  async function extExchange(units) {
+    units = Math.floor(Number(units));
+    if (!(units >= 1) || units > 100) return { ok: false, reason: 'units' };
+    const meta = await store.get(META_KEY);
+    if (meta && meta.admin) return { ok: false, reason: 'admin' };
+    const sv = await store.get(SAVE_KEY);
+    if (!sv || typeof sv !== 'object') return { ok: false, reason: 'funds' };
+    const nm = bigMinus(sv.money, units);
+    if (nm === null) return { ok: false, reason: 'funds' };
+    sv.money = nm; sv._bridge = Date.now();
+    await store.set(SAVE_KEY, sv);
+    return { ok: true };
+  }
+  function status() {
+    store.get(META_KEY).then((meta) => window.postMessage({ rmn: 'ext-status', present: true, admin: !!(meta && meta.admin) }, location.origin));
+  }
+  window.addEventListener('message', (e) => {
+    if (e.source !== window || !e.data) return;
+    if (e.data.rmn === 'ext-status?') status();
+    if (e.data.rmn === 'ext-xchg') {
+      const nonce = String(e.data.nonce || '');
+      extExchange(e.data.units).then((r) => window.postMessage({ rmn: 'xchg-res', src: 'ext', nonce, ok: r.ok, reason: r.reason || '' }, location.origin));
+    }
+  });
+
   async function decide() {
     if (decided) return;
     const auto = await store.get(AUTO_KEY);
@@ -260,6 +304,6 @@
     }
   });
 
-  hello();
+  hello(); status();
   pollTimer = setInterval(() => { if (++tries > 20) clearInterval(pollTimer); else hello(); }, 3000);
 })();

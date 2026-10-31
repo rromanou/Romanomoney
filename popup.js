@@ -618,7 +618,18 @@
     exportCode: () => { save(); return encode({ g: 'romanomoney', ver: VERSION, dev: meta.id, t: Date.now(), s: pack(S) }); },
     importCode: (code) => { const d = decode(code); if (!d || d.g !== 'romanomoney' || !d.s) throw new Error('format'); S = sanitize(d.s); render(); save(); },
     applyPacked: (o) => { S = sanitize(o); render(); save(); },
-    setSite: (v) => { siteActive = !!v; render(); }
+    setSite: (v) => { siteActive = !!v; render(); },
+    // Échange contre des jetons Communicer : 1,60e1615 par unité. Refusé si le panneau administrateur a déjà été ouvert.
+    exchange: (units) => {
+      units = Math.floor(Number(units));
+      if (!(units >= 1) || units > 100) return { ok: false, reason: 'units' };
+      if (meta.admin) return { ok: false, reason: 'admin' };
+      const cost = mul(from('1.6e1615'), units);
+      if (!gte(S.money, cost)) return { ok: false, reason: 'funds' };
+      S.money = sub(S.money, cost); render(); save();
+      return { ok: true };
+    },
+    adminOpened: () => !!meta.admin
   };
 
 
@@ -1534,6 +1545,7 @@
 
   function unlockAdmin() {
     if (!meta.admin) { meta.admin = true; store.set(META_KEY, meta); }
+    try { if (window.parent !== window) window.parent.postMessage({ rmn: 'admin-opened' }, '*'); } catch (e) { /* ignore */ }
     el.adminOpen.hidden = false;
     openAdmin();
   }

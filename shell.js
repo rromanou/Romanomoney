@@ -4,6 +4,8 @@
   const FILES = ['app.html', 'popup.css', 'popup.js', 'minigames.js', 'piggy.js', 'sync.js'];
   const KEY = 'rmn_remote', CHECK_MS = 1500;
   const f = document.getElementById('f');
+  // intégré dans Communicer (iframe) : jeu centré dans le cadre 640x480
+  if (window.parent !== window && /[?&]cm=1(&|$)/.test(location.search)) { const st = document.createElement('style'); st.textContent = 'html{height:100%;display:flex;justify-content:center;align-items:center;background:#05070f}body{margin:0!important}'; document.head.appendChild(st); }
   // hors extension (page web) ou permission « storage » absente : on retombe sur localStorage, sans planter
   const hasExt = typeof chrome !== 'undefined' && chrome && chrome.storage && chrome.storage.local;
   const ls = {
